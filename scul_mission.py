@@ -74,10 +74,12 @@ def cache_is_fresh(cache: dict) -> bool:
 def fetch_mission_name() -> str | None:
     """
     Scrape the SCUL mission control page and return the mission name.
-    Returns None on failure.
 
-    SCUL's mission control page typically has the mission name in an <h1>
-    or prominent heading. We try a few selectors in order of confidence.
+    The mission name lives in a bare <div> (no class) inside the 'narrow' div,
+    e.g.: <div>Operation Solstice Sunset Minuteman Maximum</div>
+    We find it by locating the 'narrow' div that contains "Operation" and
+    extracting the bare child div whose text starts with "Operation".
+    Falls back to a broader search if the page structure changes.
     """
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; pi-matrix-display/1.0)"}
@@ -89,28 +91,31 @@ def fetch_mission_name() -> str | None:
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # Try selectors in priority order — adjust if the page structure changes
-    selectors = [
-        ("h1", {}),                          # most likely — main page heading
-        ("h2", {}),                          # fallback heading
-        (".mission-name", {}),               # possible CSS class
-        (".mission_name", {}),
-        ("#mission-name", {}),
-        ("title", {}),                       # last resort: page title
-    ]
+    # ── Primary: bare <div> with no class containing "Operation …" ──
+    for div in soup.find_all("div", class_=False):
+        text = div.get_text(strip=True)
+        if text.startswith("Operation") and len(text) < 200:
+            print(f"[SCUL] Found mission name (bare div): {text!r}")
+            return text
 
-    for tag, attrs in selectors:
-        el = soup.find(tag, attrs) if attrs else soup.find(tag)
-        if el:
+    # ── Fallback: any element inside the 'narrow' div mentioning Operation ──
+    narrow = soup.find("div", class_="narrow")
+    if narrow:
+        for el in narrow.find_all(True):
             text = el.get_text(strip=True)
-            if text and len(text) > 2:
-                print(f"[SCUL] Found mission name via <{tag}>: {text!r}")
+            if text.startswith("Operation") and len(text) < 200:
+                print(f"[SCUL] Found mission name (narrow fallback): {text!r}")
                 return text
 
+    # ── Last resort: any element on the page ──
+    for el in soup.find_all(True):
+        text = el.get_text(strip=True)
+        if text.startswith("Operation") and len(text) < 200:
+            print(f"[SCUL] Found mission name (last resort): {text!r}")
+            return text
+
     print("[SCUL] Could not locate mission name in page.")
-    # Debug: print first 500 chars of body so you can adjust selectors
-    body = soup.get_text()[:500]
-    print(f"[SCUL] Page preview:\n{body}")
+    print(f"[SCUL] Page preview:\n{soup.get_text()[:500]}")
     return None
 
 
