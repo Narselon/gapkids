@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 32x32 RGB Matrix Display Manager
-Supports: static images, scrolling images, and animated GIFs
-Requires: rpi-rgb-led-matrix, Pillow
+Supports: static images, scrolling images, animated GIFs, and SCUL mission name scroll.
+Requires: rpi-rgb-led-matrix, Pillow, requests, beautifulsoup4
 """
 
 import os
@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from PIL import Image, ImageSequence
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
+from scul_mission import get_mission_name, scroll_mission_name
 
 # ─────────────────────────────────────────────
 # CONFIGURATION
@@ -33,6 +34,10 @@ DEFAULT_GIF_FRAME_DELAY  = 0.08   # fallback frame delay if GIF has none
 # Supported file types
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 GIF_EXTENSIONS   = {".gif"}
+
+# SCUL mission name scroll
+SCUL_ENABLED          = True   # Set False to disable entirely
+SCUL_EVERY_N_IMAGES   = 5      # Show mission scroll after every N images
 
 
 # ─────────────────────────────────────────────
@@ -300,13 +305,33 @@ def main():
 
     # Shuffle on first run
     random.shuffle(files)
-    index = 0
+    index             = 0
+    images_since_scul = 0
+
+    # Pre-fetch mission name at startup (uses cache if fresh)
+    mission_name = None
+    if SCUL_ENABLED:
+        mission_name = get_mission_name()
 
     print(f"[INFO] Found {len(files)} file(s). Starting display loop.")
 
     while running:
+        # ── SCUL mission scroll ──────────────────────────────────────
+        if SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
+            # get_mission_name() uses cache; only hits network when >24h old
+            mission_name = get_mission_name()
+            if mission_name and running:
+                print(f"[INFO] Scrolling SCUL mission: {mission_name!r}")
+                scroll_mission_name(matrix, mission_name)
+            images_since_scul = 0
+
+        # ── Next image ───────────────────────────────────────────────
+        if not running:
+            break
+
         filepath = files[index]
         display_file(matrix, filepath, config)
+        images_since_scul += 1
 
         index += 1
         if index >= len(files):
