@@ -182,7 +182,7 @@ def display_scroll(matrix: RGBMatrix, img: Image.Image,
 
 
 def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LOOPS):
-    """Play an animated GIF for a set number of loops."""
+    """Play an animated GIF. Short GIFs automatically loop more times."""
     frames = []
     delays = []
 
@@ -196,6 +196,15 @@ def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LO
 
     if not frames:
         return
+
+    # Auto-boost loops for short GIFs so they don't just flash by
+    total_duration = sum(delays)
+    if total_duration < 2.0:
+        loops = max(loops, 8)   # very short — loop lots
+    elif total_duration < 5.0:
+        loops = max(loops, 4)   # medium short — loop a few times
+
+    print(f"[GIF] {len(frames)} frames, {total_duration:.1f}s total, looping {loops}x")
 
     canvas = matrix.CreateFrameCanvas()
     for _ in range(loops):
