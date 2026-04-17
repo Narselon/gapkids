@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "./images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "./control.json"
+CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0

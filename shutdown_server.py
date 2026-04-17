@@ -25,7 +25,7 @@ import urllib.parse
 
 PORT        = 8080
 PASSWORD    = "gapkids"       # Change this
-CONTROL_FILE = "./control.json"
+CONTROL_FILE = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_CONTROL = {
     "brightness":      80,
