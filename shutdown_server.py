@@ -24,7 +24,7 @@ import os
 import urllib.parse
 
 PORT        = 8080
-PASSWORD    = "gapkids"       # Change this
+PASSWORD    = ""       # Change this
 CONTROL_FILE = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_CONTROL = {
@@ -100,11 +100,6 @@ HTML = """<!DOCTYPE html>
 <body>
 <h1>🖥️ GapKids Pi</h1>
 
-<div class="card" id="pw-section">
-  <label>Password<span id="auth-status"></span></label>
-  <input type="password" id="pw" placeholder="Enter password" oninput="loadState()">
-</div>
-
 <div class="card">
   <h2>Brightness</h2>
   <label>Level <span id="bright-val">80</span>%</label>
@@ -143,6 +138,10 @@ HTML = """<!DOCTYPE html>
     <button class="btn-pause"  onclick="togglePause()">⏸ Pause</button>
     <button class="btn-skip"   onclick="doSkip()">⏭ Skip</button>
   </div>
+  <div class="row" style="margin-top:0.5em">
+    <button class="btn-send"     onclick="displayCmd('start')">▶ Start Display</button>
+    <button class="btn-shutdown" onclick="displayCmd('stop')">■ Stop Display</button>
+  </div>
 </div>
 
 <div class="card">
@@ -166,7 +165,7 @@ HTML = """<!DOCTYPE html>
 <div id="status"></div>
 
 <script>
-function pw() { return document.getElementById('pw').value; }
+function pw() { return ""; }
 function msg(t) { document.getElementById('status').innerText = t; }
 
 function hexToRgb(hex) {
@@ -236,6 +235,12 @@ function loadState() {
   });
 }
 
+function displayCmd(action) {
+  fetch('/display?action=' + action)
+    .then(r => r.json())
+    .then(r => msg(r.message || (r.ok ? '✓ Done' : '✗ failed')));
+}
+
 loadState();
 </script>
 </body>
@@ -289,7 +294,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def check_pw(self, qs: dict) -> bool:
-        return qs.get("pw", [""])[0] == PASSWORD
+        return True
 
     def parse_request_path(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -327,6 +332,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ctrl["skip"] = True
             write_control(ctrl)
             self.send_json({"ok": True})
+        
+        elif path == "/display":
+            action = qs.get("action", [""])[0]
+            if action == "stop":
+                subprocess.Popen(["pkill", "-f", "matrix_display.py"])
+                self.send_json({"ok": True, "message": "Display stopped."})
+            elif action == "start":
+                subprocess.Popen([
+                    "/usr/bin/python3",
+                    "/home/narselon/gapkids/gapkids/matrix_display.py"
+                ])
+                self.send_json({"ok": True, "message": "Display starting..."})
+            else:
+                self.send_json({"error": "unknown action"}, 400)
 
         elif path == "/reboot":
             self.send_json({"ok": True, "message": "Rebooting in 3s..."})
