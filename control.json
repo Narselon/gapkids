@@ -1,0 +1,14 @@
+{
+    "brightness": 80,
+    "scroll_speed": 0.03,
+    "static_duration": 8.0,
+    "gif_loops": 2,
+    "skip": false,
+    "message": "",
+    "message_color": [
+        255,
+        200,
+        0
+    ],
+    "paused": false
+}
