@@ -10,5 +10,6 @@
         200,
         0
     ],
-    "paused": false
+    "paused": false,
+    "mode": "everything"
 }

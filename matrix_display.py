@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "./images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
+CONTROL_FILE  = "./control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -53,6 +53,7 @@ DEFAULT_CONTROL = {
     "message":         "",
     "message_color":   [255, 200, 0],
     "paused":          False,
+    "mode":            "everything",  # everything | text_only | images_only | off
 }
 
 def read_control() -> dict:
@@ -339,7 +340,15 @@ def main():
             matrix = create_matrix(brightness=new_brightness)
             last_brightness = new_brightness
 
-        # Custom message takes priority
+        mode = ctrl.get("mode", "everything")
+
+        # Off mode — clear and wait
+        if mode == "off":
+            matrix.Clear()
+            time.sleep(0.5)
+            continue
+
+        # Custom message takes priority over everything
         if ctrl.get("message"):
             print(f"[INFO] Message: {ctrl['message']!r}")
             display_message(matrix, ctrl["message"], ctrl.get("message_color", [255, 200, 0]))
@@ -357,8 +366,17 @@ def main():
             index = (index + 1) % len(files)
             continue
 
-        # SCUL scroll
-        if SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
+        # Text only mode — just scroll SCUL mission name and loop
+        if mode == "text_only":
+            mission_name = get_mission_name()
+            if mission_name and running:
+                scroll_mission_name(matrix, mission_name)
+            else:
+                time.sleep(1)
+            continue
+
+        # SCUL scroll (everything and images_only modes)
+        if mode != "images_only" and SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
             mission_name = get_mission_name()
             if mission_name and running:
                 scroll_mission_name(matrix, mission_name)
@@ -367,7 +385,7 @@ def main():
         if not running:
             break
 
-        # Rescan folder on each cycle to pick up new Drive syncs
+        # Rescan folder on each cycle to pick up new uploads/Drive syncs
         if index == 0:
             new_files = scan_images(IMAGE_FOLDER)
             if new_files:
