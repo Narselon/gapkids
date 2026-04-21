@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "./images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "./control.json"
+CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -310,6 +310,14 @@ signal.signal(signal.SIGTERM, handle_signal)
 
 def main():
     global running
+
+     # Always start unpaused regardless of saved state
+    ctrl = read_control()
+    ctrl["paused"] = False
+    ctrl["skip"] = False
+    ctrl["message"] = ""
+    with open(CONTROL_FILE, "w") as f:
+        json.dump(ctrl, f, indent=2)
 
     print("[INFO] Starting RGB Matrix Display Manager")
     ctrl   = read_control()
