@@ -377,7 +377,7 @@ def local_images() -> list:
 class Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
-        pass
+        print(f"REQUEST: {self.path}")
 
     def send_json(self, data, code=200):
         body = json.dumps(data).encode()
