@@ -383,17 +383,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = json.dumps(data).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", len(body))
+        self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def serve_html(self):
         body = HTML.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", len(body))
+        self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def parse_path(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -567,6 +577,6 @@ if __name__ == "__main__":
     if not os.path.exists(CONTROL_FILE):
         write_control(DEFAULT_CONTROL)
 
-    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[Control Server] http://gapkids.local:{PORT}")
     server.serve_forever()
