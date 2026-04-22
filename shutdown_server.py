@@ -218,7 +218,7 @@ function api(path, body) {
 }
 
 function setSetting(key, value) {
-  api('/set', { [key]: value }).then(r => msg(r.ok ? '✓ Updated' : '✗ ' + (r.error||'failed')));
+  api('/set', { [key]: value }).then(r => msg(r.ok ? 'OK Updated' : 'X ' + (r.error||'failed')));
 }
 
 function setMode(mode) {
@@ -226,7 +226,7 @@ function setMode(mode) {
     if (r.ok) {
       document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
       document.getElementById('mode-' + mode).classList.add('active');
-      msg('✓ Mode: ' + mode.replace('_',' '));
+      msg('OK Mode: ' + mode.replace('_',' '));
     }
   });
 }
@@ -234,14 +234,14 @@ function setMode(mode) {
 function togglePause() {
   api('/toggle_pause').then(r => {
     if (r.ok) {
-      document.getElementById('pause-btn').innerText = r.paused ? '▶ Resume' : '⏸ Pause';
+      document.getElementById('pause-btn').innerText = r.paused ? '> Resume' : '|| Pause';
       msg(r.paused ? 'Paused' : 'Resumed');
     }
   });
 }
 
 function doSkip() {
-  api('/skip').then(r => msg(r.ok ? '⏭ Skipped' : '✗ failed'));
+  api('/skip').then(r => msg(r.ok ? '>> Skipped' : 'X failed'));
 }
 
 function sendMessage() {
@@ -249,21 +249,21 @@ function sendMessage() {
   const color = hexToRgb(document.getElementById('msg-color').value);
   if (!text) { msg('Enter a message first.'); return; }
   api('/set', { message: text, message_color: color }).then(r => {
-    if (r.ok) { msg('✓ Message sent!'); document.getElementById('msg-text').value = ''; }
-    else msg('✗ ' + (r.error||'failed'));
+    if (r.ok) { msg('OK Message sent!'); document.getElementById('msg-text').value = ''; }
+    else msg('X ' + (r.error||'failed'));
   });
 }
 
 function sysCmd(cmd) {
   if (!confirm('Really ' + cmd + '?')) return;
-  api('/' + cmd).then(r => msg(r.message || '✗ failed'));
+  api('/' + cmd).then(r => msg(r.message || 'X failed'));
 }
 
 function displayCmd(action) {
-  api('/display?action=' + action).then(r => msg(r.message || (r.ok ? '✓' : '✗ failed')));
+  api('/display?action=' + action).then(r => msg(r.message || (r.ok ? 'OK' : 'X failed')));
 }
 
-// ── Upload ────────────────────────────────────
+// --- Upload ---
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('drop-zone').classList.remove('drag');
@@ -286,11 +286,11 @@ function uploadFiles(files) {
       .then(r => {
         done++;
         bar.style.width = (done / files.length * 100) + '%';
-        if (r.ok) { msg('✓ Uploaded: ' + r.filename); loadImageList(); }
-        else msg('✗ ' + (r.error || 'upload failed'));
+        if (r.ok) { msg('OK Uploaded: ' + r.filename); loadImageList(); }
+        else msg('X ' + (r.error || 'upload failed'));
         if (done === files.length) setTimeout(() => prog.style.display='none', 1000);
       })
-      .catch(() => { done++; msg('✗ Upload error'); });
+      .catch(() => { done++; msg('X Upload error'); });
   });
 }
 
@@ -299,7 +299,7 @@ function loadImageList() {
     const list = document.getElementById('upload-list');
     if (!r.files || !r.files.length) { list.innerHTML = '<div style="color:#555;padding:0.3em 0">No local uploads yet.</div>'; return; }
     list.innerHTML = r.files.map(f =>
-      '<div class="upload-item"><span>' + f + '</span><span class="upload-del" onclick="deleteImage(\'' + f + '\')">✕</span></div>'
+      '<div class="upload-item"><span>' + f + '</span><span class="upload-del" onclick="deleteImage(\\\'' + f + '\\\')">X</span></div>'
     ).join('');
   });
 }
@@ -307,12 +307,12 @@ function loadImageList() {
 function deleteImage(filename) {
   if (!confirm('Delete ' + filename + '?')) return;
   api('/delete_image', { filename }).then(r => {
-    msg(r.ok ? '✓ Deleted ' + filename : '✗ ' + (r.error||'failed'));
+    msg(r.ok ? 'OK Deleted ' + filename : 'X ' + (r.error||'failed'));
     if (r.ok) loadImageList();
   });
 }
 
-// ── Load state ────────────────────────────────
+// --- Load state ---
 function loadState() {
   api('/state').then(r => {
     if (!r.brightness) return;
@@ -325,7 +325,7 @@ function loadState() {
     document.getElementById('dur-val').innerText     = r.static_duration;
     document.getElementById('gif_loops').value       = r.gif_loops;
     document.getElementById('loop-val').innerText    = r.gif_loops;
-    document.getElementById('pause-btn').innerText   = r.paused ? '▶ Resume' : '⏸ Pause';
+    document.getElementById('pause-btn').innerText   = r.paused ? '> Resume' : '|| Pause';
     const mode = r.mode || 'everything';
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
     const mb = document.getElementById('mode-' + mode);
