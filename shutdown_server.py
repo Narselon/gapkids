@@ -474,6 +474,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/set":
             body = self.read_body()
+            print(f"SET called with: {body}")
             ctrl = read_control()
             for key in ("brightness", "scroll_speed", "static_duration",
                         "gif_loops", "message", "message_color",
