@@ -8,7 +8,6 @@ import http.server
 import subprocess
 import json
 import os
-import cgi
 import uuid
 import urllib.parse
 from pathlib import Path
@@ -481,34 +480,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_json({"error": "expected multipart"}, 400)
                     return
 
-                # Parse multipart manually using cgi module
-                length  = int(self.headers.get("Content-Length", 0))
-                environ = {
-                    "REQUEST_METHOD": "POST",
-                    "CONTENT_TYPE":   ct,
-                    "CONTENT_LENGTH": str(length),
-                }
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ=environ
-                )
-                fileitem = form["file"]
-                if not fileitem.filename:
-                    self.send_json({"error": "no file"}, 400)
+                # Get boundary
+                boundary = None
+                for part in ct.split(";"):
+                    part = part.strip()
+                    if part.startswith("boundary="):
+                        boundary = part[9:].strip()
+                        break
+
+                if not boundary:
+                    self.send_json({"error": "no boundary"}, 400)
                     return
 
-                ext = Path(fileitem.filename).suffix.lower()
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+
+                # Split on boundary
+                delimiter = ("--" + boundary).encode()
+                parts = body.split(delimiter)
+
+                filename = None
+                filedata = None
+
+                for part in parts:
+                    if b"Content-Disposition" not in part:
+                        continue
+                    header_end = part.find(b"\r\n\r\n")
+                    if header_end == -1:
+                        continue
+                    headers = part[:header_end].decode(errors="ignore")
+                    data = part[header_end+4:]
+                    # Strip trailing boundary marker
+                    if data.endswith(b"\r\n"):
+                        data = data[:-2]
+
+                    if 'filename="' in headers:
+                        start = headers.find('filename="') + 10
+                        end = headers.find('"', start)
+                        filename = headers[start:end]
+                        filedata = data
+
+                if not filename or filedata is None:
+                    self.send_json({"error": "no file found"}, 400)
+                    return
+
+                ext = Path(filename).suffix.lower()
                 if ext not in ALLOWED_EXTENSIONS:
                     self.send_json({"error": "unsupported file type"}, 400)
                     return
 
-                # Prefix with local_ to avoid Drive sync collisions
                 safe_name = "local_" + str(uuid.uuid4())[:8] + ext
                 dest = os.path.join(IMAGE_DIR, safe_name)
                 os.makedirs(IMAGE_DIR, exist_ok=True)
                 with open(dest, "wb") as f:
-                    f.write(fileitem.file.read())
+                    f.write(filedata)
 
                 self.send_json({"ok": True, "filename": safe_name})
 
