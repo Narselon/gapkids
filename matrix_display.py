@@ -23,7 +23,7 @@ from scul_mission import get_mission_name, scroll_mission_name
 
 MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
-IMAGE_FOLDER  = "./images"
+IMAGE_FOLDER  = "/home/narselon/gapkids/gapkids/images"
 CONFIG_FILE   = "./display_config.json"
 CONTROL_FILE  = "./control.json"
 
@@ -357,9 +357,12 @@ def main():
             display_message(matrix, ctrl["message"], ctrl.get("message_color", [255, 200, 0]))
             continue
 
-        # Message queue — play through queued messages
+        # Message queue — respects current mode
+        # In text_only: queue plays continuously
+        # In everything/images_only: queue items play between images
+        # In images_only: queue is skipped
         queue = ctrl.get("message_queue", [])
-        if queue:
+        if queue and mode != "images_only":
             q_index = ctrl.get("queue_index", 0)
             if q_index >= len(queue):
                 q_index = 0
@@ -376,14 +379,15 @@ def main():
                 if ctrl2.get("queue_loop"):
                     ctrl2["queue_index"] = 0
                 else:
-                    # Queue finished and not looping — clear it
                     ctrl2["message_queue"] = []
                     ctrl2["queue_index"] = 0
             else:
                 ctrl2["queue_index"] = next_index
             with open(CONTROL_FILE, "w") as f:
                 json.dump(ctrl2, f, indent=2)
-            continue
+            # In text_only mode keep looping queue, otherwise fall through to images
+            if mode == "text_only":
+                continue
 
         # Paused
         if ctrl.get("paused"):
@@ -397,13 +401,14 @@ def main():
             index = (index + 1) % len(files)
             continue
 
-        # Text only mode — just scroll SCUL mission name and loop
+        # Text only mode — use queue if available, otherwise SCUL mission
         if mode == "text_only":
-            mission_name = get_mission_name()
-            if mission_name and running:
-                scroll_mission_name(matrix, mission_name)
-            else:
-                time.sleep(1)
+            if not ctrl.get("message_queue"):
+                mission_name = get_mission_name()
+                if mission_name and running:
+                    scroll_mission_name(matrix, mission_name)
+                else:
+                    time.sleep(1)
             continue
 
         # SCUL scroll (everything and images_only modes)
