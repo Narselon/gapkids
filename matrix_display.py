@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "./images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
+CONTROL_FILE  = "./control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -54,6 +54,9 @@ DEFAULT_CONTROL = {
     "message_color":   [255, 200, 0],
     "paused":          False,
     "mode":            "everything",  # everything | text_only | images_only | off
+    "message_queue":   [],            # list of {text, color} dicts
+    "queue_loop":      False,         # loop the queue continuously
+    "queue_index":     0,             # current position in queue
 }
 
 def read_control() -> dict:
@@ -311,14 +314,6 @@ signal.signal(signal.SIGTERM, handle_signal)
 def main():
     global running
 
-     # Always start unpaused regardless of saved state
-    ctrl = read_control()
-    ctrl["paused"] = False
-    ctrl["skip"] = False
-    ctrl["message"] = ""
-    with open(CONTROL_FILE, "w") as f:
-        json.dump(ctrl, f, indent=2)
-
     print("[INFO] Starting RGB Matrix Display Manager")
     ctrl   = read_control()
     matrix = create_matrix(brightness=ctrl.get("brightness", DEFAULT_BRIGHTNESS))
@@ -356,10 +351,38 @@ def main():
             time.sleep(0.5)
             continue
 
-        # Custom message takes priority over everything
+        # Single message takes top priority
         if ctrl.get("message"):
             print(f"[INFO] Message: {ctrl['message']!r}")
             display_message(matrix, ctrl["message"], ctrl.get("message_color", [255, 200, 0]))
+            continue
+
+        # Message queue — play through queued messages
+        queue = ctrl.get("message_queue", [])
+        if queue:
+            q_index = ctrl.get("queue_index", 0)
+            if q_index >= len(queue):
+                q_index = 0
+            item = queue[q_index]
+            text  = item.get("text", "") if isinstance(item, dict) else str(item)
+            color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
+            if text and running:
+                print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
+                display_message(matrix, text, color)
+            # Advance index
+            next_index = q_index + 1
+            ctrl2 = read_control()
+            if next_index >= len(ctrl2.get("message_queue", [])):
+                if ctrl2.get("queue_loop"):
+                    ctrl2["queue_index"] = 0
+                else:
+                    # Queue finished and not looping — clear it
+                    ctrl2["message_queue"] = []
+                    ctrl2["queue_index"] = 0
+            else:
+                ctrl2["queue_index"] = next_index
+            with open(CONTROL_FILE, "w") as f:
+                json.dump(ctrl2, f, indent=2)
             continue
 
         # Paused

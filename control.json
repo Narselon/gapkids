@@ -11,5 +11,8 @@
         0
     ],
     "paused": false,
-    "mode": "everything"
+    "mode": "everything",
+    "message_queue": [],
+    "queue_loop": false,
+    "queue_index": 0
 }

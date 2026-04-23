@@ -8,6 +8,7 @@ import http.server
 import subprocess
 import json
 import os
+import cgi
 import uuid
 import urllib.parse
 from pathlib import Path
@@ -27,6 +28,9 @@ DEFAULT_CONTROL = {
     "message_color":   [255, 200, 0],
     "paused":          False,
     "mode":            "everything",  # everything | text_only | images_only | off
+    "message_queue":   [],
+    "queue_loop":      False,
+    "queue_index":     0,
 }
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
@@ -176,6 +180,25 @@ HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- PLAYLIST -->
+<div class="card">
+  <h2>Text Playlist</h2>
+  <div style="display:flex;gap:0.5em;margin-top:0.3em">
+    <input type="text" id="q-text" placeholder="Add a message..." style="flex:1">
+    <input type="color" id="q-color" value="#ffc800" style="width:44px;height:38px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+  </div>
+  <div class="row" style="margin-top:0.5em">
+    <button class="btn-green" onclick="queueAdd()">+ Add</button>
+    <button class="btn-blue" onclick="queuePlay()">&#9654; Play</button>
+    <button class="btn-grey" onclick="queueStop()">&#9632; Stop</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.5em;margin-top:0.6em;font-size:0.85em">
+    <input type="checkbox" id="q-loop" onchange="queueSetLoop(this.checked)" style="width:16px;height:16px">
+    <label for="q-loop" style="display:inline;color:#aaa">Loop playlist</label>
+  </div>
+  <div id="queue-list" style="margin-top:0.6em;font-size:0.82em;color:#aaa"></div>
+</div>
+
 <!-- UPLOAD -->
 <div class="card">
   <h2>Upload Images</h2>
@@ -218,7 +241,7 @@ function api(path, body) {
 }
 
 function setSetting(key, value) {
-  api('/set', { [key]: value }).then(r => msg(r.ok ? 'OK Updated' : 'X ' + (r.error||'failed')));
+  api('/set', { [key]: value }).then(r => msg(r.ok ? '✓ Updated' : '✗ ' + (r.error||'failed')));
 }
 
 function setMode(mode) {
@@ -226,7 +249,7 @@ function setMode(mode) {
     if (r.ok) {
       document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
       document.getElementById('mode-' + mode).classList.add('active');
-      msg('OK Mode: ' + mode.replace('_',' '));
+      msg('✓ Mode: ' + mode.replace('_',' '));
     }
   });
 }
@@ -234,14 +257,14 @@ function setMode(mode) {
 function togglePause() {
   api('/toggle_pause').then(r => {
     if (r.ok) {
-      document.getElementById('pause-btn').innerText = r.paused ? '> Resume' : '|| Pause';
+      document.getElementById('pause-btn').innerText = r.paused ? '▶ Resume' : '⏸ Pause';
       msg(r.paused ? 'Paused' : 'Resumed');
     }
   });
 }
 
 function doSkip() {
-  api('/skip').then(r => msg(r.ok ? '>> Skipped' : 'X failed'));
+  api('/skip').then(r => msg(r.ok ? '⏭ Skipped' : '✗ failed'));
 }
 
 function sendMessage() {
@@ -249,21 +272,21 @@ function sendMessage() {
   const color = hexToRgb(document.getElementById('msg-color').value);
   if (!text) { msg('Enter a message first.'); return; }
   api('/set', { message: text, message_color: color }).then(r => {
-    if (r.ok) { msg('OK Message sent!'); document.getElementById('msg-text').value = ''; }
-    else msg('X ' + (r.error||'failed'));
+    if (r.ok) { msg('✓ Message sent!'); document.getElementById('msg-text').value = ''; }
+    else msg('✗ ' + (r.error||'failed'));
   });
 }
 
 function sysCmd(cmd) {
   if (!confirm('Really ' + cmd + '?')) return;
-  api('/' + cmd).then(r => msg(r.message || 'X failed'));
+  api('/' + cmd).then(r => msg(r.message || '✗ failed'));
 }
 
 function displayCmd(action) {
-  api('/display?action=' + action).then(r => msg(r.message || (r.ok ? 'OK' : 'X failed')));
+  api('/display?action=' + action).then(r => msg(r.message || (r.ok ? '✓' : '✗ failed')));
 }
 
-// --- Upload ---
+// ── Upload ────────────────────────────────────
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('drop-zone').classList.remove('drag');
@@ -286,11 +309,11 @@ function uploadFiles(files) {
       .then(r => {
         done++;
         bar.style.width = (done / files.length * 100) + '%';
-        if (r.ok) { msg('OK Uploaded: ' + r.filename); loadImageList(); }
-        else msg('X ' + (r.error || 'upload failed'));
+        if (r.ok) { msg('✓ Uploaded: ' + r.filename); loadImageList(); }
+        else msg('✗ ' + (r.error || 'upload failed'));
         if (done === files.length) setTimeout(() => prog.style.display='none', 1000);
       })
-      .catch(() => { done++; msg('X Upload error'); });
+      .catch(() => { done++; msg('✗ Upload error'); });
   });
 }
 
@@ -299,7 +322,7 @@ function loadImageList() {
     const list = document.getElementById('upload-list');
     if (!r.files || !r.files.length) { list.innerHTML = '<div style="color:#555;padding:0.3em 0">No local uploads yet.</div>'; return; }
     list.innerHTML = r.files.map(f =>
-      '<div class="upload-item"><span>' + f + '</span><span class="upload-del" onclick="deleteImage(\\\'' + f + '\\\')">X</span></div>'
+      '<div class="upload-item"><span>' + f + '</span><span class="upload-del" onclick="deleteImage(\'' + f + '\')">✕</span></div>'
     ).join('');
   });
 }
@@ -307,12 +330,12 @@ function loadImageList() {
 function deleteImage(filename) {
   if (!confirm('Delete ' + filename + '?')) return;
   api('/delete_image', { filename }).then(r => {
-    msg(r.ok ? 'OK Deleted ' + filename : 'X ' + (r.error||'failed'));
+    msg(r.ok ? '✓ Deleted ' + filename : '✗ ' + (r.error||'failed'));
     if (r.ok) loadImageList();
   });
 }
 
-// --- Load state ---
+// ── Load state ────────────────────────────────
 function loadState() {
   api('/state').then(r => {
     if (!r.brightness) return;
@@ -325,7 +348,7 @@ function loadState() {
     document.getElementById('dur-val').innerText     = r.static_duration;
     document.getElementById('gif_loops').value       = r.gif_loops;
     document.getElementById('loop-val').innerText    = r.gif_loops;
-    document.getElementById('pause-btn').innerText   = r.paused ? '> Resume' : '|| Pause';
+    document.getElementById('pause-btn').innerText   = r.paused ? '▶ Resume' : '⏸ Pause';
     const mode = r.mode || 'everything';
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
     const mb = document.getElementById('mode-' + mode);
@@ -335,6 +358,7 @@ function loadState() {
 
 loadState();
 loadImageList();
+loadQueue();
 </script>
 </body>
 </html>
@@ -377,33 +401,23 @@ def local_images() -> list:
 class Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
-        print(f"REQUEST: {self.path}")
+        pass
 
     def send_json(self, data, code=200):
         body = json.dumps(data).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", len(body))
-        self.send_header("Connection", "close")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        try:
-            self.wfile.write(body)
-            self.wfile.flush()
-        except Exception:
-            pass
+        self.wfile.write(body)
 
     def serve_html(self):
         body = HTML.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", len(body))
-        self.send_header("Connection", "close")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        try:
-            self.wfile.write(body)
-            self.wfile.flush()
-        except Exception:
-            pass
+        self.wfile.write(body)
 
     def parse_path(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -474,11 +488,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/set":
             body = self.read_body()
-            print(f"SET called with: {body}")
             ctrl = read_control()
             for key in ("brightness", "scroll_speed", "static_duration",
                         "gif_loops", "message", "message_color",
-                        "paused", "skip", "mode"):
+                        "paused", "skip", "mode",
+                        "message_queue", "queue_loop", "queue_index"):
                 if key in body:
                     ctrl[key] = body[key]
             write_control(ctrl)
@@ -491,60 +505,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_json({"error": "expected multipart"}, 400)
                     return
 
-                # Get boundary
-                boundary = None
-                for part in ct.split(";"):
-                    part = part.strip()
-                    if part.startswith("boundary="):
-                        boundary = part[9:].strip()
-                        break
-
-                if not boundary:
-                    self.send_json({"error": "no boundary"}, 400)
+                # Parse multipart manually using cgi module
+                length  = int(self.headers.get("Content-Length", 0))
+                environ = {
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE":   ct,
+                    "CONTENT_LENGTH": str(length),
+                }
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ=environ
+                )
+                fileitem = form["file"]
+                if not fileitem.filename:
+                    self.send_json({"error": "no file"}, 400)
                     return
 
-                length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(length)
-
-                # Split on boundary
-                delimiter = ("--" + boundary).encode()
-                parts = body.split(delimiter)
-
-                filename = None
-                filedata = None
-
-                for part in parts:
-                    if b"Content-Disposition" not in part:
-                        continue
-                    header_end = part.find(b"\r\n\r\n")
-                    if header_end == -1:
-                        continue
-                    headers = part[:header_end].decode(errors="ignore")
-                    data = part[header_end+4:]
-                    # Strip trailing boundary marker
-                    if data.endswith(b"\r\n"):
-                        data = data[:-2]
-
-                    if 'filename="' in headers:
-                        start = headers.find('filename="') + 10
-                        end = headers.find('"', start)
-                        filename = headers[start:end]
-                        filedata = data
-
-                if not filename or filedata is None:
-                    self.send_json({"error": "no file found"}, 400)
-                    return
-
-                ext = Path(filename).suffix.lower()
+                ext = Path(fileitem.filename).suffix.lower()
                 if ext not in ALLOWED_EXTENSIONS:
                     self.send_json({"error": "unsupported file type"}, 400)
                     return
 
+                # Prefix with local_ to avoid Drive sync collisions
                 safe_name = "local_" + str(uuid.uuid4())[:8] + ext
                 dest = os.path.join(IMAGE_DIR, safe_name)
                 os.makedirs(IMAGE_DIR, exist_ok=True)
                 with open(dest, "wb") as f:
-                    f.write(filedata)
+                    f.write(fileitem.file.read())
 
                 self.send_json({"ok": True, "filename": safe_name})
 
@@ -578,6 +566,6 @@ if __name__ == "__main__":
     if not os.path.exists(CONTROL_FILE):
         write_control(DEFAULT_CONTROL)
 
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[Control Server] http://gapkids.local:{PORT}")
     server.serve_forever()
