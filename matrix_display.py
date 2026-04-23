@@ -358,9 +358,9 @@ def main():
             continue
 
         # Message queue — respects current mode
-        # In text_only: queue plays continuously
-        # In everything/images_only: queue items play between images
-        # In images_only: queue is skipped
+        # images_only: queue skipped entirely
+        # text_only: queue loops continuously, falls back to SCUL if empty
+        # everything: one queue item plays between each image, wraps around
         queue = ctrl.get("message_queue", [])
         if queue and mode != "images_only":
             q_index = ctrl.get("queue_index", 0)
@@ -372,20 +372,24 @@ def main():
             if text and running:
                 print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
                 display_message(matrix, text, color)
-            # Advance index
+            # Advance index — always wrap around, never clear
             next_index = q_index + 1
             ctrl2 = read_control()
-            if next_index >= len(ctrl2.get("message_queue", [])):
-                if ctrl2.get("queue_loop"):
-                    ctrl2["queue_index"] = 0
+            current_queue = ctrl2.get("message_queue", [])
+            if current_queue:  # only update if queue still exists
+                if next_index >= len(current_queue):
+                    if ctrl2.get("queue_loop") or mode != "text_only":
+                        # wrap around in loop mode OR in everything mode
+                        ctrl2["queue_index"] = 0
+                    else:
+                        # text_only + no loop = clear after full playthrough
+                        ctrl2["message_queue"] = []
+                        ctrl2["queue_index"] = 0
                 else:
-                    ctrl2["message_queue"] = []
-                    ctrl2["queue_index"] = 0
-            else:
-                ctrl2["queue_index"] = next_index
-            with open(CONTROL_FILE, "w") as f:
-                json.dump(ctrl2, f, indent=2)
-            # In text_only mode keep looping queue, otherwise fall through to images
+                    ctrl2["queue_index"] = next_index
+                with open(CONTROL_FILE, "w") as f:
+                    json.dump(ctrl2, f, indent=2)
+            # In text_only mode keep looping, otherwise fall through to show an image
             if mode == "text_only":
                 continue
 
