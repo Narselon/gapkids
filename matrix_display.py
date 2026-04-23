@@ -332,66 +332,33 @@ def main():
 
     print(f"[INFO] Found {len(files)} file(s). Starting display loop.")
 
+    # Track whether to show queue item after next image
+    show_queue_next = False
+
     while running:
         ctrl = read_control()
 
         # Brightness change
         new_brightness = ctrl.get("brightness", DEFAULT_BRIGHTNESS)
         if new_brightness != last_brightness:
-            print(f"[INFO] Brightness → {new_brightness}")
+            print(f"[INFO] Brightness -> {new_brightness}")
             matrix.Clear()
             matrix = create_matrix(brightness=new_brightness)
             last_brightness = new_brightness
 
         mode = ctrl.get("mode", "everything")
 
-        # Off mode — clear and wait
+        # Off mode
         if mode == "off":
             matrix.Clear()
             time.sleep(0.5)
             continue
 
-        # Single message takes top priority
+        # Single instant message
         if ctrl.get("message"):
             print(f"[INFO] Message: {ctrl['message']!r}")
             display_message(matrix, ctrl["message"], ctrl.get("message_color", [255, 200, 0]))
             continue
-
-        # Message queue — respects current mode
-        # images_only: queue skipped entirely
-        # text_only: queue loops continuously, falls back to SCUL if empty
-        # everything: one queue item plays between each image, wraps around
-        queue = ctrl.get("message_queue", [])
-        if queue and mode != "images_only":
-            q_index = ctrl.get("queue_index", 0)
-            if q_index >= len(queue):
-                q_index = 0
-            item = queue[q_index]
-            text  = item.get("text", "") if isinstance(item, dict) else str(item)
-            color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
-            if text and running:
-                print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
-                display_message(matrix, text, color)
-            # Advance index — always wrap around, never clear
-            next_index = q_index + 1
-            ctrl2 = read_control()
-            current_queue = ctrl2.get("message_queue", [])
-            if current_queue:  # only update if queue still exists
-                if next_index >= len(current_queue):
-                    if ctrl2.get("queue_loop") or mode != "text_only":
-                        # wrap around in loop mode OR in everything mode
-                        ctrl2["queue_index"] = 0
-                    else:
-                        # text_only + no loop = clear after full playthrough
-                        ctrl2["message_queue"] = []
-                        ctrl2["queue_index"] = 0
-                else:
-                    ctrl2["queue_index"] = next_index
-                with open(CONTROL_FILE, "w") as f:
-                    json.dump(ctrl2, f, indent=2)
-            # In text_only mode keep looping, otherwise fall through to show an image
-            if mode == "text_only":
-                continue
 
         # Paused
         if ctrl.get("paused"):
@@ -403,11 +370,35 @@ def main():
             print("[INFO] Skip.")
             clear_flag("skip")
             index = (index + 1) % len(files)
+            show_queue_next = False
             continue
 
-        # Text only mode — use queue if available, otherwise SCUL mission
+        # TEXT ONLY MODE
         if mode == "text_only":
-            if not ctrl.get("message_queue"):
+            queue = ctrl.get("message_queue", [])
+            if queue:
+                q_index = random.randint(0, len(queue) - 1)
+                item = queue[q_index]
+                text  = item.get("text", "") if isinstance(item, dict) else str(item)
+                color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
+                if text and running:
+                    print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
+                    display_message(matrix, text, color)
+                next_index = q_index + 1
+                ctrl2 = read_control()
+                cq = ctrl2.get("message_queue", [])
+                if cq:
+                    if next_index >= len(cq):
+                        if ctrl2.get("queue_loop"):
+                            ctrl2["queue_index"] = 0
+                        else:
+                            ctrl2["message_queue"] = []
+                            ctrl2["queue_index"] = 0
+                    else:
+                        ctrl2["queue_index"] = next_index
+                    with open(CONTROL_FILE, "w") as f:
+                        json.dump(ctrl2, f, indent=2)
+            else:
                 mission_name = get_mission_name()
                 if mission_name and running:
                     scroll_mission_name(matrix, mission_name)
@@ -415,8 +406,47 @@ def main():
                     time.sleep(1)
             continue
 
-        # SCUL scroll (everything and images_only modes)
-        if mode != "images_only" and SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
+        # IMAGES ONLY MODE
+        if mode == "images_only":
+            if index == 0:
+                new_files = scan_images(IMAGE_FOLDER)
+                if new_files:
+                    files = new_files
+                    random.shuffle(files)
+            if not running:
+                break
+            display_file(matrix, files[index], config)
+            index = (index + 1) % len(files)
+            continue
+
+        # EVERYTHING MODE
+        # Pattern: image, queue item (if any), image, queue item, ...
+        # If no queue, SCUL text appears every N images
+        queue = ctrl.get("message_queue", [])
+
+        if show_queue_next and queue:
+            q_index = ctrl.get("queue_index", 0)
+            if q_index >= len(queue):
+                q_index = 0
+            # Pick a random item instead of sequential
+            q_index = random.randint(0, len(queue) - 1)
+            item = queue[q_index]
+            text  = item.get("text", "") if isinstance(item, dict) else str(item)
+            color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
+            if text and running:
+                print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
+                display_message(matrix, text, color)
+            ctrl2 = read_control()
+            cq = ctrl2.get("message_queue", [])
+            if cq:
+                ctrl2["queue_index"] = (q_index + 1) % len(cq)
+                with open(CONTROL_FILE, "w") as f:
+                    json.dump(ctrl2, f, indent=2)
+            show_queue_next = False
+            continue
+
+        # SCUL scroll when no queue
+        if not queue and SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
             mission_name = get_mission_name()
             if mission_name and running:
                 scroll_mission_name(matrix, mission_name)
@@ -425,7 +455,7 @@ def main():
         if not running:
             break
 
-        # Rescan folder on each cycle to pick up new uploads/Drive syncs
+        # Rescan folder periodically
         if index == 0:
             new_files = scan_images(IMAGE_FOLDER)
             if new_files:
@@ -435,6 +465,10 @@ def main():
         display_file(matrix, files[index], config)
         images_since_scul += 1
         index = (index + 1) % len(files)
+
+        # Flag to show queue item after next image
+        if ctrl.get("message_queue"):
+            show_queue_next = True
 
     matrix.Clear()
     print("[INFO] Matrix cleared. Goodbye.")
