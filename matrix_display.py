@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "/home/narselon/gapkids/gapkids/images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "./control.json"
+CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -376,6 +376,7 @@ def main():
         # TEXT ONLY MODE
         if mode == "text_only":
             queue = ctrl.get("message_queue", [])
+            print(f"[TEXT MODE] queue len={len(queue)} queue_index={ctrl.get('queue_index',0)}")
             if queue:
                 q_index = random.randint(0, len(queue) - 1)
                 item = queue[q_index]
