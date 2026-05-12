@@ -393,8 +393,10 @@ def read_control() -> dict:
 
 
 def write_control(data: dict):
-    with open(CONTROL_FILE, "w") as f:
+    tmp = CONTROL_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, CONTROL_FILE)
 
 
 def local_images() -> list:
@@ -485,6 +487,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 subprocess.Popen(["pkill", "-f", "matrix_display.py"])
                 self.send_json({"ok": True, "message": "Display stopped."})
             elif action == "start":
+                subprocess.call(["pkill", "-f", "matrix_display.py"])
+                import time; time.sleep(1)
                 subprocess.Popen([
                     "/usr/bin/python3",
                     "/home/narselon/gapkids/gapkids/matrix_display.py"

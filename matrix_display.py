@@ -69,11 +69,16 @@ def read_control() -> dict:
     except Exception:
         return dict(DEFAULT_CONTROL)
 
+def write_control(data: dict):
+    tmp = CONTROL_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, CONTROL_FILE)
+
 def clear_flag(key: str):
     ctrl = read_control()
     ctrl[key] = False if key != "message" else ""
-    with open(CONTROL_FILE, "w") as f:
-        json.dump(ctrl, f, indent=2)
+    write_control(ctrl)
 
 
 # ─────────────────────────────────────────────
@@ -217,7 +222,7 @@ def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LO
 # CUSTOM MESSAGE SCROLL
 # ─────────────────────────────────────────────
 
-def display_message(matrix: RGBMatrix, text: str, color: list):
+def display_message(matrix: RGBMatrix, text: str, color: list, clear_message_flag: bool = True):
     from scul_mission import render_text_banner, SCROLL_SPEED
     import scul_mission as sm
     orig = sm.TEXT_COLOR
@@ -238,7 +243,8 @@ def display_message(matrix: RGBMatrix, text: str, color: list):
         canvas = matrix.SwapOnVSync(canvas)
         time.sleep(speed)
 
-    clear_flag("message")
+    if clear_message_flag:
+        clear_flag("message")
 
 
 # ─────────────────────────────────────────────
@@ -384,7 +390,7 @@ def main():
                 color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
                 if text and running:
                     print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
-                    display_message(matrix, text, color)
+                    display_message(matrix, text, color, clear_message_flag=False)
                 next_index = q_index + 1
                 ctrl2 = read_control()
                 cq = ctrl2.get("message_queue", [])
@@ -397,8 +403,7 @@ def main():
                             ctrl2["queue_index"] = 0
                     else:
                         ctrl2["queue_index"] = next_index
-                    with open(CONTROL_FILE, "w") as f:
-                        json.dump(ctrl2, f, indent=2)
+                    write_control(ctrl2)
             else:
                 mission_name = get_mission_name()
                 if mission_name and running:
@@ -441,8 +446,7 @@ def main():
             cq = ctrl2.get("message_queue", [])
             if cq:
                 ctrl2["queue_index"] = (q_index + 1) % len(cq)
-                with open(CONTROL_FILE, "w") as f:
-                    json.dump(ctrl2, f, indent=2)
+                write_control(ctrl2)
             show_queue_next = False
             continue
 
