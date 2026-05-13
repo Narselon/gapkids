@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "/home/narselon/gapkids/gapkids/images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
+CONTROL_FILE  = "./control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -57,6 +57,7 @@ DEFAULT_CONTROL = {
     "message_queue":   [],            # list of {text, color} dicts
     "queue_loop":      False,         # loop the queue continuously
     "queue_index":     0,             # current position in queue
+    "font":            "default",     # font name from FONT_REGISTRY
 }
 
 def read_control() -> dict:
@@ -69,16 +70,11 @@ def read_control() -> dict:
     except Exception:
         return dict(DEFAULT_CONTROL)
 
-def write_control(data: dict):
-    tmp = CONTROL_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, CONTROL_FILE)
-
 def clear_flag(key: str):
     ctrl = read_control()
     ctrl[key] = False if key != "message" else ""
-    write_control(ctrl)
+    with open(CONTROL_FILE, "w") as f:
+        json.dump(ctrl, f, indent=2)
 
 
 # ─────────────────────────────────────────────
@@ -93,7 +89,7 @@ def create_matrix(brightness: int = DEFAULT_BRIGHTNESS) -> RGBMatrix:
     options.parallel         = 1
     options.hardware_mapping = "adafruit-hat"
     options.brightness       = brightness
-    options.gpio_slowdown    = 2
+    options.gpio_slowdown    = 3
     options.drop_privileges  = True
     return RGBMatrix(options=options)
 
@@ -224,11 +220,9 @@ def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LO
 
 def display_message(matrix: RGBMatrix, text: str, color: list, clear_message_flag: bool = True):
     from scul_mission import render_text_banner, SCROLL_SPEED
-    import scul_mission as sm
-    orig = sm.TEXT_COLOR
-    sm.TEXT_COLOR = tuple(color)
-    banner = render_text_banner(text)
-    sm.TEXT_COLOR = orig
+    ctrl = read_control()
+    font_name = ctrl.get("font", "default")
+    banner = render_text_banner(text, font_name=font_name, color=tuple(color))
 
     canvas      = matrix.CreateFrameCanvas()
     total_steps = banner.width - MATRIX_WIDTH
@@ -320,7 +314,19 @@ signal.signal(signal.SIGTERM, handle_signal)
 def main():
     global running
 
+    # Allow HAT to fully initialize before driving the matrix
+    print("[INFO] Waiting for HAT to initialize...")
+    time.sleep(3)
+
     print("[INFO] Starting RGB Matrix Display Manager")
+
+    # Reset transient state on startup
+    ctrl = read_control()
+    ctrl["paused"]  = False
+    ctrl["skip"]    = False
+    ctrl["message"] = ""
+    write_control(ctrl)
+
     ctrl   = read_control()
     matrix = create_matrix(brightness=ctrl.get("brightness", DEFAULT_BRIGHTNESS))
     config = load_config(CONFIG_FILE)
@@ -382,9 +388,10 @@ def main():
         # TEXT ONLY MODE
         if mode == "text_only":
             queue = ctrl.get("message_queue", [])
-            print(f"[TEXT MODE] queue len={len(queue)} queue_index={ctrl.get('queue_index',0)}")
             if queue:
-                q_index = random.randint(0, len(queue) - 1)
+                q_index = ctrl.get("queue_index", 0)
+                if q_index >= len(queue):
+                    q_index = 0
                 item = queue[q_index]
                 text  = item.get("text", "") if isinstance(item, dict) else str(item)
                 color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
@@ -403,7 +410,8 @@ def main():
                             ctrl2["queue_index"] = 0
                     else:
                         ctrl2["queue_index"] = next_index
-                    write_control(ctrl2)
+                    with open(CONTROL_FILE, "w") as f:
+                        json.dump(ctrl2, f, indent=2)
             else:
                 mission_name = get_mission_name()
                 if mission_name and running:
@@ -434,8 +442,6 @@ def main():
             q_index = ctrl.get("queue_index", 0)
             if q_index >= len(queue):
                 q_index = 0
-            # Pick a random item instead of sequential
-            q_index = random.randint(0, len(queue) - 1)
             item = queue[q_index]
             text  = item.get("text", "") if isinstance(item, dict) else str(item)
             color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
@@ -446,7 +452,8 @@ def main():
             cq = ctrl2.get("message_queue", [])
             if cq:
                 ctrl2["queue_index"] = (q_index + 1) % len(cq)
-                write_control(ctrl2)
+                with open(CONTROL_FILE, "w") as f:
+                    json.dump(ctrl2, f, indent=2)
             show_queue_next = False
             continue
 

@@ -29,12 +29,28 @@ FETCH_TIMEOUT   = 10             # seconds before giving up on the request
 RETRY_INTERVAL  = 300            # if fetch fails, retry in 5 minutes
 
 # Text rendering
-FONT_PATH       = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_SIZE       = 8              # 8px fits cleanly in 32px height
 TEXT_COLOR      = (255, 200, 0)  # amber — change freely (R, G, B)
 BG_COLOR        = (0, 0, 0)      # black background
 SCROLL_SPEED    = 0.04           # seconds per pixel step
 SCROLL_PADDING  = 32             # blank pixels of lead-in before text
+ACTIVE_FONT     = "default"      # set via control.json font field
+
+# Font registry — name -> list of paths to try in order
+FONT_REGISTRY = {
+    "default":    ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+    "dejavu":     ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+    "mono":       ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
+    "serif":      ["/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+                   "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"],
+    "papyrus":    ["/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"],
+    "pixel":      ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"],
+    "narrow":     ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+}
+
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # fallback
 
 MATRIX_WIDTH    = 32
 MATRIX_HEIGHT   = 32
@@ -154,17 +170,34 @@ def get_mission_name(force_refresh: bool = False) -> str:
 # TEXT → IMAGE
 # ─────────────────────────────────────────────
 
-def render_text_banner(text: str) -> Image.Image:
+def load_font(font_name: str = "default", size: int = FONT_SIZE) -> ImageFont.FreeTypeFont:
+    """Load a font by name from the registry, falling back gracefully."""
+    paths = FONT_REGISTRY.get(font_name, FONT_REGISTRY["default"])
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            continue
+    # Last resort fallbacks
+    for path in FONT_REGISTRY["default"]:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            continue
+    print("[SCUL] No TrueType font found, using default bitmap font.")
+    return ImageFont.load_default()
+
+
+def render_text_banner(text: str, font_name: str = "default",
+                       color: tuple = None) -> Image.Image:
     """
     Render text into a wide Image that can be scrolled across the matrix.
     Returns an RGB image exactly MATRIX_HEIGHT pixels tall.
+    font_name: key from FONT_REGISTRY
+    color: RGB tuple, defaults to TEXT_COLOR
     """
-    # Load font — fall back to default bitmap font if path missing
-    try:
-        font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-    except (IOError, OSError):
-        print("[SCUL] TrueType font not found, using default bitmap font.")
-        font = ImageFont.load_default()
+    use_color = color if color else TEXT_COLOR
+    font = load_font(font_name, FONT_SIZE)
 
     # Measure text width
     dummy = Image.new("RGB", (1, 1))
@@ -181,7 +214,7 @@ def render_text_banner(text: str) -> Image.Image:
 
     # Vertically center the text
     y = (MATRIX_HEIGHT - text_h) // 2 - bbox[1]  # adjust for font descender offset
-    draw.text((SCROLL_PADDING, y), text, font=font, fill=TEXT_COLOR)
+    draw.text((SCROLL_PADDING, y), text, font=font, fill=use_color)
 
     return banner
 

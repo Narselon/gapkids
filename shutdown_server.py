@@ -29,6 +29,7 @@ DEFAULT_CONTROL = {
     "message_queue":   [],
     "queue_loop":      False,
     "queue_index":     0,
+    "font":            "default",
 }
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
@@ -284,13 +285,31 @@ HTML = (
     'function loadImageList() {'
     '  api("/images").then(function(r) {'
     '    var list = document.getElementById("upload-list");'
-    '    if (!r.files || !r.files.length) { list.innerHTML = "<div style=\'color:#555;padding:0.3em 0\'>No local uploads yet.</div>"; return; }'
-    '    list.innerHTML = r.files.map(function(f) {'
-    '      return "<div class=\'upload-item\'><span>" + f + "</span><span class=\'upload-del\' onclick=\'deleteImage(\\\"" + f + "\\\")\'>X</span></div>";'
+    '    if (!r.files || !r.files.length) {'
+    '      list.innerHTML = "<div style=\\"color:#555;padding:0.3em 0\\">No local uploads yet.</div>";'
+    '      return;'
+    '    }'
+    '    list.innerHTML = r.files.map(function(item) {'
+    '      var label = item.label || item.filename;'
+    '      var fname = item.filename;'
+    '      var sid = fname.replace(/[^a-z0-9]/gi, "_");'
+    '      return "<div style=\\"border-bottom:1px solid #2a2a2a;padding:0.5em 0\\">"'
+    '        + "<div style=\\"display:flex;justify-content:space-between;margin-bottom:0.3em\\">"'
+    '        + "<span style=\\"color:#aaa;font-size:0.8em\\">" + fname + "</span>"'
+    '        + "<span class=\\"upload-del\\" onclick=\\"deleteImage(\'" + fname + "\')\\">X</span>"'
+    '        + "</div>"'
+    '        + "<div style=\\"display:flex;gap:0.4em\\">"'
+    '        + "<input type=\\"text\\" id=\\"lbl_" + sid + "\\" value=\\"" + label + "\\" placeholder=\\"Label...\\" style=\\"flex:1;padding:0.3em;font-size:0.8em;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#eee\\">"'
+    '        + "<button onclick=\\"saveLabel(\'" + fname + "\', document.getElementById(\'lbl_" + sid + "\').value)\\" style=\\"padding:0.3em 0.6em;border:none;border-radius:6px;background:#27ae60;color:#fff;cursor:pointer;font-size:0.8em\\">Save</button>"'
+    '        + "</div></div>";'
     '    }).join("");'
     '  });'
     '}'
-    'function deleteImage(filename) {'
+    'function saveLabel(filename, label) {'
+    '  fetch("/label_image?filename=" + encodeURIComponent(filename) + "&label=" + encodeURIComponent(label))'
+    '    .then(function(r){ return r.json(); })'
+    '    .then(function(r){ msg(r.ok ? "Label saved." : "Failed."); });'
+    '}'
     '  if (!confirm("Delete " + filename + "?")) return;'
     '  api("/delete_image", { filename: filename }).then(function(r) {'
     '    msg(r.ok ? "Deleted " + filename : "Failed");'
@@ -363,7 +382,7 @@ HTML = (
     '    document.getElementById("dur-val").innerText = r.static_duration;'
     '    document.getElementById("gif_loops").value = r.gif_loops;'
     '    document.getElementById("loop-val").innerText = r.gif_loops;'
-    '    document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";'
+    '    document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";''    var fs = document.getElementById("font-select");''    if (fs) fs.value = r.font || "default";'
     '    var mode = r.mode || "everything";'
     '    document.querySelectorAll(".mode-btn").forEach(function(b){ b.classList.remove("active"); });'
     '    var mb = document.getElementById("mode-" + mode);'
@@ -393,18 +412,38 @@ def read_control() -> dict:
 
 
 def write_control(data: dict):
-    tmp = CONTROL_FILE + ".tmp"
-    with open(tmp, "w") as f:
+    with open(CONTROL_FILE, "w") as f:
         json.dump(data, f, indent=2)
-    os.replace(tmp, CONTROL_FILE)
 
+
+LABELS_FILE = "/home/narselon/gapkids/gapkids/image_labels.json"
+
+def load_labels() -> dict:
+    try:
+        with open(LABELS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_labels(labels: dict):
+    tmp = LABELS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(labels, f, indent=2)
+    os.replace(tmp, LABELS_FILE)
 
 def local_images() -> list:
     p = Path(IMAGE_DIR)
     if not p.exists():
         return []
-    return sorted(f.name for f in p.iterdir()
-                  if f.name.startswith("local_") and f.suffix.lower() in ALLOWED_EXTENSIONS)
+    labels = load_labels()
+    result = []
+    for f in sorted(p.iterdir()):
+        if f.name.startswith("local_") and f.suffix.lower() in ALLOWED_EXTENSIONS:
+            result.append({
+                "filename": f.name,
+                "label": labels.get(f.name, f.name)
+            })
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -481,14 +520,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             write_control(ctrl)
             self.send_json({"ok": True})
 
+        elif path == "/label_image":
+            # GET /label_image?filename=X&label=Y
+            filename = qs.get("filename", [""])[0]
+            label    = qs.get("label", [""])[0]
+            if filename and label:
+                labels = load_labels()
+                labels[filename] = label
+                save_labels(labels)
+                self.send_json({"ok": True})
+            else:
+                self.send_json({"error": "missing filename or label"}, 400)
+
         elif path == "/display":
             action = qs.get("action", [""])[0]
             if action == "stop":
                 subprocess.Popen(["pkill", "-f", "matrix_display.py"])
                 self.send_json({"ok": True, "message": "Display stopped."})
             elif action == "start":
-                subprocess.call(["pkill", "-f", "matrix_display.py"])
-                import time; time.sleep(1)
                 subprocess.Popen([
                     "/usr/bin/python3",
                     "/home/narselon/gapkids/gapkids/matrix_display.py"
@@ -517,7 +566,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for key in ("brightness", "scroll_speed", "static_duration",
                         "gif_loops", "message", "message_color",
                         "paused", "skip", "mode",
-                        "message_queue", "queue_loop", "queue_index"):
+                        "message_queue", "queue_loop", "queue_index", "font"):
                 if key in body:
                     ctrl[key] = body[key]
             write_control(ctrl)
