@@ -53,9 +53,9 @@ h1 { font-size: 1.3em; margin-bottom: 1em; text-align: center; }
 h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin: 1.2em 0 0.5em; }
 .card { background: #1e1e1e; border-radius: 12px; padding: 1em; margin-bottom: 0.8em; }
 label { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 0.3em; }
-input[type=range] { width: 100%%; accent-color: #f0a500; }
+input[type=range] { width: 100%; accent-color: #f0a500; }
 input[type=text], select {
-  width: 100%%; padding: 0.6em; border-radius: 8px;
+  width: 100%; padding: 0.6em; border-radius: 8px;
   border: 1px solid #333; background: #2a2a2a;
   color: #eee; font-size: 0.95em; margin-top: 0.3em;
 }
@@ -90,7 +90,7 @@ button {
 input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px; cursor: pointer; }
 #status { margin-top: 1em; font-size: 0.85em; color: #aaa; text-align: center; min-height: 1.5em; }
 .progress { height: 4px; background: #333; border-radius: 2px; margin-top: 0.5em; display: none; }
-.progress-bar { height: 100%%; background: #f0a500; border-radius: 2px; width: 0%%; }
+.progress-bar { height: 100%; background: #f0a500; border-radius: 2px; width: 0%; }
 .gallery {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 0.5em; margin-top: 0.6em;
@@ -99,11 +99,11 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
   background: #1a1a1a; border-radius: 8px; overflow: hidden;
 }
 .gallery-item img {
-  width: 100%%; aspect-ratio: 1; object-fit: cover; display: block;
+  width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
 }
 .gallery-item-body { padding: 0.3em; }
 .gallery-item input {
-  width: 100%%; padding: 0.2em; font-size: 0.75em;
+  width: 100%; padding: 0.2em; font-size: 0.75em;
   background: #2a2a2a; border: 1px solid #444;
   border-radius: 4px; color: #eee; margin-bottom: 0.2em;
   margin-top: 0;
@@ -136,7 +136,7 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
 
 <div class="card">
   <h2>Brightness</h2>
-  <label>Level <span id="bright-val">80</span>%%</label>
+  <label>Level <span id="bright-val">80</span>%</label>
   <input type="range" id="brightness" min="10" max="100" value="80"
     oninput="document.getElementById('bright-val').innerText=this.value"
     onchange="setSetting('brightness', parseInt(this.value))">
@@ -323,7 +323,7 @@ function uploadFiles(files) {
   var prog = document.querySelector(".progress");
   var bar = document.getElementById("prog-bar");
   prog.style.display = "block";
-  bar.style.width = "0%%";
+  bar.style.width = "0%";
   var done = 0;
   Array.from(files).forEach(function(file) {
     var fd = new FormData();
@@ -455,7 +455,16 @@ function loadQueue() {
 }
 
 function loadState() {
-  api("/state").then(function(r) {
+  // If control was injected by the server, use it; otherwise, fetch it.
+  if (typeof control !== 'undefined') {
+    updateUI(control);
+  } else {
+    api("/state").then(r => updateUI(r));
+  }
+}
+
+// Helper to actually move the sliders
+function updateUI(r) {
     if (!r.brightness) return;
     document.getElementById("brightness").value = r.brightness;
     document.getElementById("bright-val").innerText = r.brightness;
@@ -473,7 +482,6 @@ function loadState() {
     document.querySelectorAll(".mode-btn").forEach(function(b) { b.classList.remove("active"); });
     var mb = document.getElementById("mode-" + mode);
     if (mb) mb.classList.add("active");
-  });
 }
 
 loadState();
@@ -560,7 +568,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             pass
 
     def serve_html(self):
-        body = HTML.encode()
+        # 1. Fetch current control settings
+        control = read_control()
+        
+        # 2. Inject the settings into the HTML string
+        # We replace the placeholder in your <script> with actual data
+        rendered_html = HTML.replace("loadState();", f"let control = {json.dumps(control)}; loadState();")
+        
+        body = rendered_html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", len(body))
