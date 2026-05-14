@@ -353,16 +353,19 @@ function loadImageList() {
       var fname = item.filename;
       var sid = "lbl_" + fname.replace(/[^a-z0-9]/gi, "_");
       var imgUrl = "/image_file/" + encodeURIComponent(fname);
-      return [
-        "<div class='gallery-item'>",
-        "<img src='" + imgUrl + "' loading='lazy'>",
-        "<div class='gallery-item-body'>",
-        "<input type='text' id='" + sid + "' value='" + label.replace(/'/g, "&#39;") + "' placeholder='Label...'>",
-        "<div class='gallery-item-btns'>",
-        "<button class='btn-save' onclick='saveLabel(\"" + fname + "\", document.getElementById(\"" + sid + "\").value)'>Save</button>",
-        "<button class='btn-del' onclick='deleteImage(\"" + fname + "\")'>Del</button>",
-        "</div></div></div>"
-      ].join("");
+      
+      // Use backticks for the string to avoid quote-nesting errors
+      return `
+        <div class='gallery-item'>
+          <img src='${imgUrl}' loading='lazy'>
+          <div class='gallery-item-body'>
+            <input type='text' id='${sid}' value='${label.replace(/'/g, "&#39;")}' placeholder='Label...'>
+            <div class='gallery-item-btns'>
+              <button class='btn-save' onclick="saveLabel('${fname}', document.getElementById('${sid}').value)">Save</button>
+              <button class='btn-del' onclick="deleteImage('${fname}')">Del</button>
+            </div>
+          </div>
+        </div>`;
     }).join("");
   });
 }
