@@ -15,6 +15,7 @@ from pathlib import Path
 PORT         = 8080
 CONTROL_FILE = "/home/narselon/gapkids/gapkids/control.json"
 IMAGE_DIR    = "/home/narselon/gapkids/gapkids/images"
+LABELS_FILE  = "/home/narselon/gapkids/gapkids/image_labels.json"
 
 DEFAULT_CONTROL = {
     "brightness":      80,
@@ -34,373 +35,461 @@ DEFAULT_CONTROL = {
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
 
-HTML = (
-    '<!DOCTYPE html>'
-    '<html lang="en">'
-    '<head>'
-    '<meta charset="UTF-8">'
-    '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    '<title>GapKids Pi</title>'
-    '<style>'
-    '* { box-sizing: border-box; margin: 0; padding: 0; }'
-    'body {'
-    '  font-family: -apple-system, BlinkMacSystemFont, sans-serif;'
-    '  background: #111; color: #eee;'
-    '  padding: 1.2em; max-width: 480px; margin: auto; padding-bottom: 3em;'
-    '}'
-    'h1 { font-size: 1.3em; margin-bottom: 1em; text-align: center; }'
-    'h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin: 1.2em 0 0.5em; }'
-    '.card { background: #1e1e1e; border-radius: 12px; padding: 1em; margin-bottom: 0.8em; }'
-    'label { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 0.3em; }'
-    'input[type=range] { width: 100%; accent-color: #f0a500; }'
-    'input[type=text] {'
-    '  width: 100%; padding: 0.6em; border-radius: 8px;'
-    '  border: 1px solid #333; background: #2a2a2a;'
-    '  color: #eee; font-size: 0.95em; margin-top: 0.3em;'
-    '}'
-    '.row { display: flex; gap: 0.5em; margin-top: 0.6em; flex-wrap: wrap; }'
-    'button {'
-    '  flex: 1; padding: 0.75em 0.5em; border: none;'
-    '  border-radius: 10px; font-size: 0.9em; font-weight: 600;'
-    '  cursor: pointer; min-width: 70px;'
-    '}'
-    '.btn-blue   { background: #3a7bd5; color: #fff; }'
-    '.btn-grey   { background: #555;    color: #fff; }'
-    '.btn-orange { background: #c47a00; color: #fff; }'
-    '.btn-red    { background: #c0392b; color: #fff; }'
-    '.btn-green  { background: #27ae60; color: #fff; }'
-    '.btn-amber  { background: #f0a500; color: #111; }'
-    '.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin-top: 0.5em; }'
-    '.mode-btn {'
-    '  padding: 0.8em 0.4em; border: 2px solid #333;'
-    '  border-radius: 10px; background: #2a2a2a;'
-    '  color: #aaa; font-size: 0.85em; font-weight: 600;'
-    '  cursor: pointer; text-align: center;'
-    '}'
-    '.mode-btn.active { border-color: #f0a500; color: #f0a500; background: #1a1500; }'
-    '.upload-area {'
-    '  border: 2px dashed #444; border-radius: 10px;'
-    '  padding: 1.2em; text-align: center; cursor: pointer;'
-    '  margin-top: 0.5em; color: #888; font-size: 0.9em;'
-    '}'
-    '.upload-area.drag { border-color: #f0a500; color: #f0a500; }'
-    '#file-input { display: none; }'
-    '.upload-list { margin-top: 0.6em; font-size: 0.82em; color: #aaa; }'
-    '.upload-item { display: flex; justify-content: space-between; padding: 0.3em 0; border-bottom: 1px solid #2a2a2a; }'
-    '.upload-del { color: #c0392b; cursor: pointer; font-weight: bold; padding: 0 0.3em; }'
-    '.color-row { display: flex; align-items: center; gap: 0.6em; margin-top: 0.5em; }'
-    'input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px; cursor: pointer; }'
-    '#status { margin-top: 1em; font-size: 0.85em; color: #aaa; text-align: center; min-height: 1.5em; }'
-    '.progress { height: 4px; background: #333; border-radius: 2px; margin-top: 0.5em; display: none; }'
-    '.progress-bar { height: 100%; background: #f0a500; border-radius: 2px; width: 0%; }'
-    '</style>'
-    '</head>'
-    '<body>'
-    '<h1>GapKids Pi</h1>'
+HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GapKids Pi</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #111; color: #eee;
+  padding: 1.2em; max-width: 480px; margin: auto; padding-bottom: 3em;
+}
+h1 { font-size: 1.3em; margin-bottom: 1em; text-align: center; }
+h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin: 1.2em 0 0.5em; }
+.card { background: #1e1e1e; border-radius: 12px; padding: 1em; margin-bottom: 0.8em; }
+label { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 0.3em; }
+input[type=range] { width: 100%; accent-color: #f0a500; }
+input[type=text], select {
+  width: 100%; padding: 0.6em; border-radius: 8px;
+  border: 1px solid #333; background: #2a2a2a;
+  color: #eee; font-size: 0.95em; margin-top: 0.3em;
+}
+.row { display: flex; gap: 0.5em; margin-top: 0.6em; flex-wrap: wrap; }
+button {
+  flex: 1; padding: 0.75em 0.5em; border: none;
+  border-radius: 10px; font-size: 0.9em; font-weight: 600;
+  cursor: pointer; min-width: 70px;
+}
+.btn-blue   { background: #3a7bd5; color: #fff; }
+.btn-grey   { background: #555;    color: #fff; }
+.btn-orange { background: #c47a00; color: #fff; }
+.btn-red    { background: #c0392b; color: #fff; }
+.btn-green  { background: #27ae60; color: #fff; }
+.btn-amber  { background: #f0a500; color: #111; }
+.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin-top: 0.5em; }
+.mode-btn {
+  padding: 0.8em 0.4em; border: 2px solid #333;
+  border-radius: 10px; background: #2a2a2a;
+  color: #aaa; font-size: 0.85em; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.mode-btn.active { border-color: #f0a500; color: #f0a500; background: #1a1500; }
+.upload-area {
+  border: 2px dashed #444; border-radius: 10px;
+  padding: 1.2em; text-align: center; cursor: pointer;
+  margin-top: 0.5em; color: #888; font-size: 0.9em;
+}
+.upload-area.drag { border-color: #f0a500; color: #f0a500; }
+#file-input { display: none; }
+.color-row { display: flex; align-items: center; gap: 0.6em; margin-top: 0.5em; }
+input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px; cursor: pointer; }
+#status { margin-top: 1em; font-size: 0.85em; color: #aaa; text-align: center; min-height: 1.5em; }
+.progress { height: 4px; background: #333; border-radius: 2px; margin-top: 0.5em; display: none; }
+.progress-bar { height: 100%; background: #f0a500; border-radius: 2px; width: 0%; }
+.gallery {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 0.5em; margin-top: 0.6em;
+}
+.gallery-item {
+  background: #1a1a1a; border-radius: 8px; overflow: hidden;
+}
+.gallery-item img {
+  width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
+}
+.gallery-item-body { padding: 0.3em; }
+.gallery-item input {
+  width: 100%; padding: 0.2em; font-size: 0.75em;
+  background: #2a2a2a; border: 1px solid #444;
+  border-radius: 4px; color: #eee; margin-bottom: 0.2em;
+  margin-top: 0;
+}
+.gallery-item-btns { display: flex; gap: 0.3em; }
+.btn-save {
+  flex: 1; padding: 0.2em; border: none; border-radius: 4px;
+  background: #27ae60; color: #fff; cursor: pointer; font-size: 0.75em;
+}
+.btn-del {
+  padding: 0.2em 0.4em; border: none; border-radius: 4px;
+  background: #c0392b; color: #fff; cursor: pointer; font-size: 0.75em;
+}
+.upload-item { display: flex; justify-content: space-between; padding: 0.3em 0; border-bottom: 1px solid #2a2a2a; }
+.upload-del { color: #c0392b; cursor: pointer; font-weight: bold; padding: 0 0.3em; }
+</style>
+</head>
+<body>
+<h1>GapKids Pi</h1>
 
-    '<div class="card">'
-    '<h2>Display Mode</h2>'
-    '<div class="mode-grid">'
-    '<button class="mode-btn" id="mode-everything" onclick="setMode(\'everything\')">Everything</button>'
-    '<button class="mode-btn" id="mode-text_only" onclick="setMode(\'text_only\')">Text Only</button>'
-    '<button class="mode-btn" id="mode-images_only" onclick="setMode(\'images_only\')">Images Only</button>'
-    '<button class="mode-btn" id="mode-off" onclick="setMode(\'off\')">Off</button>'
-    '</div>'
-    '</div>'
+<div class="card">
+  <h2>Display Mode</h2>
+  <div class="mode-grid">
+    <button class="mode-btn" id="mode-everything" onclick="setMode('everything')">Everything</button>
+    <button class="mode-btn" id="mode-text_only" onclick="setMode('text_only')">Text Only</button>
+    <button class="mode-btn" id="mode-images_only" onclick="setMode('images_only')">Images Only</button>
+    <button class="mode-btn" id="mode-off" onclick="setMode('off')">Off</button>
+  </div>
+</div>
 
-    '<div class="card">'
-    '<h2>Brightness</h2>'
-    '<label>Level <span id="bright-val">80</span>%</label>'
-    '<input type="range" id="brightness" min="10" max="100" value="80"'
-    ' oninput="document.getElementById(\'bright-val\').innerText=this.value"'
-    ' onchange="setSetting(\'brightness\', parseInt(this.value))">'
-    '</div>'
+<div class="card">
+  <h2>Brightness</h2>
+  <label>Level <span id="bright-val">80</span>%</label>
+  <input type="range" id="brightness" min="10" max="100" value="80"
+    oninput="document.getElementById('bright-val').innerText=this.value"
+    onchange="setSetting('brightness', parseInt(this.value))">
+</div>
 
-    '<div class="card">'
-    '<h2>Scroll Speed</h2>'
-    '<label>Delay <span id="speed-val">0.03</span>s/step (lower = faster)</label>'
-    '<input type="range" id="scroll_speed" min="1" max="20" value="3"'
-    ' oninput="document.getElementById(\'speed-val\').innerText=(this.value/100).toFixed(2)"'
-    ' onchange="setSetting(\'scroll_speed\', this.value/100)">'
-    '</div>'
+<div class="card">
+  <h2>Scroll Speed</h2>
+  <label>Delay <span id="speed-val">0.03</span>s/step (lower = faster)</label>
+  <input type="range" id="scroll_speed" min="1" max="20" value="3"
+    oninput="document.getElementById('speed-val').innerText=(this.value/100).toFixed(2)"
+    onchange="setSetting('scroll_speed', this.value/100)">
+</div>
 
-    '<div class="card">'
-    '<h2>Image Duration</h2>'
-    '<label>Show each image for <span id="dur-val">8</span>s</label>'
-    '<input type="range" id="static_duration" min="2" max="60" value="8"'
-    ' oninput="document.getElementById(\'dur-val\').innerText=this.value"'
-    ' onchange="setSetting(\'static_duration\', parseInt(this.value))">'
-    '</div>'
+<div class="card">
+  <h2>Image Duration</h2>
+  <label>Show each image for <span id="dur-val">8</span>s</label>
+  <input type="range" id="static_duration" min="2" max="60" value="8"
+    oninput="document.getElementById('dur-val').innerText=this.value"
+    onchange="setSetting('static_duration', parseInt(this.value))">
+</div>
 
-    '<div class="card">'
-    '<h2>GIF Loops</h2>'
-    '<label>Loop count <span id="loop-val">2</span>x</label>'
-    '<input type="range" id="gif_loops" min="1" max="10" value="2"'
-    ' oninput="document.getElementById(\'loop-val\').innerText=this.value"'
-    ' onchange="setSetting(\'gif_loops\', parseInt(this.value))">'
-    '</div>'
+<div class="card">
+  <h2>GIF Loops</h2>
+  <label>Loop count <span id="loop-val">2</span>x</label>
+  <input type="range" id="gif_loops" min="1" max="10" value="2"
+    oninput="document.getElementById('loop-val').innerText=this.value"
+    onchange="setSetting('gif_loops', parseInt(this.value))">
+</div>
 
-    '<div class="card">'
-    '<h2>Playback</h2>'
-    '<div class="row">'
-    '<button class="btn-blue" id="pause-btn" onclick="togglePause()">Pause</button>'
-    '<button class="btn-grey" onclick="doSkip()">Skip</button>'
-    '</div>'
-    '<div class="row" style="margin-top:0.5em">'
-    '<button class="btn-green" onclick="displayCmd(\'start\')">Start</button>'
-    '<button class="btn-red" onclick="displayCmd(\'stop\')">Stop</button>'
-    '</div>'
-    '</div>'
+<div class="card">
+  <h2>Font</h2>
+  <select id="font-select" onchange="setSetting('font', this.value)">
+    <option value="default">Default (DejaVu Sans Bold)</option>
+    <option value="serif">Serif</option>
+    <option value="papyrus">Papyrus Style (Free Serif Bold)</option>
+    <option value="mono">Monospace</option>
+    <option value="narrow">Narrow</option>
+  </select>
+</div>
 
-    '<div class="card">'
-    '<h2>Send Message</h2>'
-    '<input type="text" id="msg-text" placeholder="Type a message to scroll...">'
-    '<div class="color-row">'
-    '<span style="font-size:0.85em">Color:</span>'
-    '<input type="color" id="msg-color" value="#ffc800">'
-    '<button class="btn-green" onclick="sendMessage()">Send</button>'
-    '</div>'
-    '</div>'
+<div class="card">
+  <h2>Playback</h2>
+  <div class="row">
+    <button class="btn-blue" id="pause-btn" onclick="togglePause()">Pause</button>
+    <button class="btn-grey" onclick="doSkip()">Skip</button>
+  </div>
+  <div class="row" style="margin-top:0.5em">
+    <button class="btn-green" onclick="displayCmd('start')">Start</button>
+    <button class="btn-red" onclick="displayCmd('stop')">Stop</button>
+  </div>
+</div>
 
-    '<div class="card">'
-    '<h2>Text Playlist</h2>'
-    '<div style="display:flex;gap:0.5em;margin-top:0.3em">'
-    '<input type="text" id="q-text" placeholder="Add a message..." style="flex:1">'
-    '<input type="color" id="q-color" value="#ffc800" style="width:44px;height:38px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">'
-    '</div>'
-    '<div class="row" style="margin-top:0.5em">'
-    '<button class="btn-green" onclick="queueAdd()">Add</button>'
-    '<button class="btn-blue" onclick="queuePlay()">Play</button>'
-    '<button class="btn-grey" onclick="queueStop()">Stop</button>'
-    '</div>'
-    '<div style="display:flex;align-items:center;gap:0.5em;margin-top:0.6em;font-size:0.85em">'
-    '<input type="checkbox" id="q-loop" onchange="queueSetLoop(this.checked)" style="width:16px;height:16px">'
-    '<label for="q-loop" style="display:inline;color:#aaa">Loop playlist</label>'
-    '</div>'
-    '<div id="queue-list" style="margin-top:0.6em;font-size:0.82em;color:#aaa"></div>'
-    '</div>'
+<div class="card">
+  <h2>Send Message</h2>
+  <input type="text" id="msg-text" placeholder="Type a message to scroll...">
+  <div class="color-row">
+    <span style="font-size:0.85em">Color:</span>
+    <input type="color" id="msg-color" value="#ffc800">
+    <button class="btn-green" onclick="sendMessage()">Send</button>
+  </div>
+</div>
 
-    '<div class="card">'
-    '<h2>Upload Images</h2>'
-    '<div class="upload-area" id="drop-zone"'
-    ' onclick="document.getElementById(\'file-input\').click()"'
-    ' ondragover="event.preventDefault();this.classList.add(\'drag\')"'
-    ' ondragleave="this.classList.remove(\'drag\')"'
-    ' ondrop="handleDrop(event)">'
-    'Tap to choose or drag and drop images here'
-    '</div>'
-    '<input type="file" id="file-input" multiple accept="image/*,.gif"'
-    ' onchange="uploadFiles(this.files)">'
-    '<div class="progress"><div class="progress-bar" id="prog-bar"></div></div>'
-    '<div class="upload-list" id="upload-list"></div>'
-    '</div>'
+<div class="card">
+  <h2>Text Playlist</h2>
+  <div style="display:flex;gap:0.5em;margin-top:0.3em">
+    <input type="text" id="q-text" placeholder="Add a message..." style="flex:1;margin-top:0">
+    <input type="color" id="q-color" value="#ffc800"
+      style="width:44px;height:38px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+  </div>
+  <div class="row" style="margin-top:0.5em">
+    <button class="btn-green" onclick="queueAdd()">Add</button>
+    <button class="btn-blue" onclick="queuePlay()">Play</button>
+    <button class="btn-grey" onclick="queueStop()">Stop</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.5em;margin-top:0.6em;font-size:0.85em">
+    <input type="checkbox" id="q-loop" onchange="queueSetLoop(this.checked)"
+      style="width:16px;height:16px">
+    <label for="q-loop" style="display:inline;color:#aaa">Loop playlist</label>
+  </div>
+  <div id="queue-list" style="margin-top:0.6em;font-size:0.82em;color:#aaa"></div>
+</div>
 
-    '<div class="card">'
-    '<h2>System</h2>'
-    '<div class="row">'
-    '<button class="btn-orange" onclick="sysCmd(\'reboot\')">Reboot</button>'
-    '<button class="btn-red" onclick="sysCmd(\'shutdown\')">Shut Down</button>'
-    '</div>'
-    '</div>'
+<div class="card">
+  <h2>Upload Images</h2>
+  <div class="upload-area" id="drop-zone"
+    onclick="document.getElementById('file-input').click()"
+    ondragover="event.preventDefault();this.classList.add('drag')"
+    ondragleave="this.classList.remove('drag')"
+    ondrop="handleDrop(event)">
+    Tap to choose or drag and drop images here
+  </div>
+  <input type="file" id="file-input" multiple accept="image/*,.gif"
+    onchange="uploadFiles(this.files)">
+  <div class="progress"><div class="progress-bar" id="prog-bar"></div></div>
+  <div class="gallery" id="upload-gallery"></div>
+</div>
 
-    '<div id="status"></div>'
+<div class="card">
+  <h2>System</h2>
+  <div class="row">
+    <button class="btn-orange" onclick="sysCmd('reboot')">Reboot</button>
+    <button class="btn-red" onclick="sysCmd('shutdown')">Shut Down</button>
+  </div>
+</div>
 
-    '<script>'
-    'function msg(t) {'
-    '  document.getElementById("status").innerText = t;'
-    '  setTimeout(function(){ document.getElementById("status").innerText=""; }, 4000);'
-    '}'
-    'function hexToRgb(hex) {'
-    '  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];'
-    '}'
-    'function api(path, body) {'
-    '  var opts = body ? { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) } : {};'
-    '  return fetch(path, opts).then(function(r){ return r.json(); }).catch(function(e){ return {error:e.toString()}; });'
-    '}'
-    'function setSetting(key, value) {'
-    '  api("/set", { [key]: value }).then(function(r){ msg(r.ok ? "OK" : "Failed"); });'
-    '}'
-    'function setMode(mode) {'
-    '  api("/set", { mode: mode }).then(function(r) {'
-    '    if (r.ok) {'
-    '      document.querySelectorAll(".mode-btn").forEach(function(b){ b.classList.remove("active"); });'
-    '      var mb = document.getElementById("mode-" + mode);'
-    '      if (mb) mb.classList.add("active");'
-    '      msg("Mode: " + mode.replace("_"," "));'
-    '    }'
-    '  });'
-    '}'
-    'function togglePause() {'
-    '  api("/toggle_pause").then(function(r) {'
-    '    if (r.ok) {'
-    '      document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";'
-    '      msg(r.paused ? "Paused" : "Resumed");'
-    '    }'
-    '  });'
-    '}'
-    'function doSkip() {'
-    '  api("/skip").then(function(r){ msg(r.ok ? "Skipped" : "Failed"); });'
-    '}'
-    'function sendMessage() {'
-    '  var text = document.getElementById("msg-text").value.trim();'
-    '  var color = hexToRgb(document.getElementById("msg-color").value);'
-    '  if (!text) { msg("Enter a message first."); return; }'
-    '  api("/set", { message: text, message_color: color }).then(function(r) {'
-    '    if (r.ok) { msg("Message sent!"); document.getElementById("msg-text").value = ""; }'
-    '    else msg("Failed: " + (r.error||"unknown"));'
-    '  });'
-    '}'
-    'function sysCmd(cmd) {'
-    '  if (!confirm("Really " + cmd + "?")) return;'
-    '  api("/" + cmd).then(function(r){ msg(r.message || "Failed"); });'
-    '}'
-    'function displayCmd(action) {'
-    '  api("/display?action=" + action).then(function(r){ msg(r.message || (r.ok ? "Done" : "Failed")); });'
-    '}'
-    'function handleDrop(e) {'
-    '  e.preventDefault();'
-    '  document.getElementById("drop-zone").classList.remove("drag");'
-    '  uploadFiles(e.dataTransfer.files);'
-    '}'
-    'function uploadFiles(files) {'
-    '  if (!files.length) return;'
-    '  var prog = document.querySelector(".progress");'
-    '  var bar = document.getElementById("prog-bar");'
-    '  prog.style.display = "block"; bar.style.width = "0%";'
-    '  var done = 0;'
-    '  Array.from(files).forEach(function(file) {'
-    '    var fd = new FormData(); fd.append("file", file);'
-    '    fetch("/upload", { method:"POST", body:fd })'
-    '      .then(function(r){ return r.json(); })'
-    '      .then(function(r) {'
-    '        done++;'
-    '        bar.style.width = (done / files.length * 100) + "%";'
-    '        if (r.ok) { msg("Uploaded: " + r.filename); loadImageList(); }'
-    '        else msg("Upload failed: " + (r.error||"unknown"));'
-    '        if (done === files.length) setTimeout(function(){ prog.style.display="none"; }, 1000);'
-    '      })'
-    '      .catch(function(){ done++; msg("Upload error"); });'
-    '  });'
-    '}'
-    'function loadImageList() {'
-    '  api("/images").then(function(r) {'
-    '    var list = document.getElementById("upload-list");'
-    '    if (!r.files || !r.files.length) {'
-    '      list.innerHTML = "<div style=\\"color:#555;padding:0.3em 0\\">No local uploads yet.</div>";'
-    '      return;'
-    '    }'
-    '    list.innerHTML = r.files.map(function(item) {'
-    '      var label = item.label || item.filename;'
-    '      var fname = item.filename;'
-    '      var sid = fname.replace(/[^a-z0-9]/gi, "_");'
-    '      return "<div style=\\"border-bottom:1px solid #2a2a2a;padding:0.5em 0\\">"'
-    '        + "<div style=\\"display:flex;justify-content:space-between;margin-bottom:0.3em\\">"'
-    '        + "<span style=\\"color:#aaa;font-size:0.8em\\">" + fname + "</span>"'
-    '        + "<span class=\\"upload-del\\" onclick=\\"deleteImage(\'" + fname + "\')\\">X</span>"'
-    '        + "</div>"'
-    '        + "<div style=\\"display:flex;gap:0.4em\\">"'
-    '        + "<input type=\\"text\\" id=\\"lbl_" + sid + "\\" value=\\"" + label + "\\" placeholder=\\"Label...\\" style=\\"flex:1;padding:0.3em;font-size:0.8em;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#eee\\">"'
-    '        + "<button onclick=\\"saveLabel(\'" + fname + "\', document.getElementById(\'lbl_" + sid + "\').value)\\" style=\\"padding:0.3em 0.6em;border:none;border-radius:6px;background:#27ae60;color:#fff;cursor:pointer;font-size:0.8em\\">Save</button>"'
-    '        + "</div></div>";'
-    '    }).join("");'
-    '  });'
-    '}'
-    'function saveLabel(filename, label) {'
-    '  fetch("/label_image?filename=" + encodeURIComponent(filename) + "&label=" + encodeURIComponent(label))'
-    '    .then(function(r){ return r.json(); })'
-    '    .then(function(r){ msg(r.ok ? "Label saved." : "Failed."); });'
-    '}'
-    '  if (!confirm("Delete " + filename + "?")) return;'
-    '  api("/delete_image", { filename: filename }).then(function(r) {'
-    '    msg(r.ok ? "Deleted " + filename : "Failed");'
-    '    if (r.ok) loadImageList();'
-    '  });'
-    '}'
-    'function queueAdd() {'
-    '  var text = document.getElementById("q-text").value.trim();'
-    '  var color = hexToRgb(document.getElementById("q-color").value);'
-    '  if (!text) { msg("Enter a message first."); return; }'
-    '  api("/state").then(function(r) {'
-    '    var queue = r.message_queue || [];'
-    '    queue.push({ text: text, color: color });'
-    '    api("/set", { message_queue: queue }).then(function(r2) {'
-    '      if (r2.ok) { msg("Added to playlist."); document.getElementById("q-text").value = ""; loadQueue(); }'
-    '    });'
-    '  });'
-    '}'
-    'function queuePlay() {'
-    '  api("/set", { queue_index: 0 }).then(function(){ loadQueue(); msg("Playing playlist..."); });'
-    '}'
-    'function queueStop() {'
-    '  api("/set", { message_queue: [], queue_index: 0 }).then(function(r) {'
-    '    if (r.ok) { msg("Playlist cleared."); loadQueue(); }'
-    '  });'
-    '}'
-    'function queueSetLoop(val) {'
-    '  api("/set", { queue_loop: val }).then(function(r) {'
-    '    if (r.ok) msg(val ? "Looping on." : "Looping off.");'
-    '  });'
-    '}'
-    'function queueRemove(index) {'
-    '  api("/state").then(function(r) {'
-    '    var queue = r.message_queue || [];'
-    '    queue.splice(index, 1);'
-    '    api("/set", { message_queue: queue, queue_index: 0 }).then(function(r2) {'
-    '      if (r2.ok) loadQueue();'
-    '    });'
-    '  });'
-    '}'
-    'function loadQueue() {'
-    '  api("/state").then(function(r) {'
-    '    var queue = r.message_queue || [];'
-    '    var current = r.queue_index || 0;'
-    '    var list = document.getElementById("queue-list");'
-    '    document.getElementById("q-loop").checked = r.queue_loop || false;'
-    '    if (!queue.length) {'
-    '      list.innerHTML = "<div style=\'color:#555;padding:0.3em 0\'>Playlist is empty.</div>";'
-    '      return;'
-    '    }'
-    '    list.innerHTML = queue.map(function(item, i) {'
-    '      var col = item.color ? "rgb(" + item.color.join(",") + ")" : "#ffc800";'
-    '      var active = i === current ? "font-weight:bold;color:#f0a500;" : "";'
-    '      return "<div class=\'upload-item\' style=\'" + active + "\'>"'
-    '        + "<span style=\'color:" + col + "\'>" + item.text + "</span>"'
-    '        + "<span class=\'upload-del\' onclick=\'queueRemove(" + i + ")\'>X</span>"'
-    '        + "</div>";'
-    '    }).join("");'
-    '  });'
-    '}'
-    'function loadState() {'
-    '  api("/state").then(function(r) {'
-    '    if (!r.brightness) return;'
-    '    document.getElementById("brightness").value = r.brightness;'
-    '    document.getElementById("bright-val").innerText = r.brightness;'
-    '    var spd = Math.round(r.scroll_speed * 100);'
-    '    document.getElementById("scroll_speed").value = spd;'
-    '    document.getElementById("speed-val").innerText = r.scroll_speed.toFixed(2);'
-    '    document.getElementById("static_duration").value = r.static_duration;'
-    '    document.getElementById("dur-val").innerText = r.static_duration;'
-    '    document.getElementById("gif_loops").value = r.gif_loops;'
-    '    document.getElementById("loop-val").innerText = r.gif_loops;'
-    '    document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";''    var fs = document.getElementById("font-select");''    if (fs) fs.value = r.font || "default";'
-    '    var mode = r.mode || "everything";'
-    '    document.querySelectorAll(".mode-btn").forEach(function(b){ b.classList.remove("active"); });'
-    '    var mb = document.getElementById("mode-" + mode);'
-    '    if (mb) mb.classList.add("active");'
-    '  });'
-    '}'
-    'loadState(); loadImageList(); loadQueue();'
-    '</script>'
-    '</body>'
-    '</html>'
-)
+<div id="status"></div>
+
+<script>
+function msg(t) {
+  document.getElementById("status").innerText = t;
+  setTimeout(function() { document.getElementById("status").innerText = ""; }, 4000);
+}
+
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+
+function api(path, body) {
+  var opts = body
+    ? { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) }
+    : {};
+  return fetch(path, opts)
+    .then(function(r) { return r.json(); })
+    .catch(function(e) { return { error: e.toString() }; });
+}
+
+function setSetting(key, value) {
+  api("/set", { [key]: value }).then(function(r) { msg(r.ok ? "OK" : "Failed"); });
+}
+
+function setMode(mode) {
+  api("/set", { mode: mode }).then(function(r) {
+    if (r.ok) {
+      document.querySelectorAll(".mode-btn").forEach(function(b) { b.classList.remove("active"); });
+      var mb = document.getElementById("mode-" + mode);
+      if (mb) mb.classList.add("active");
+      msg("Mode: " + mode.replace("_", " "));
+    }
+  });
+}
+
+function togglePause() {
+  api("/toggle_pause").then(function(r) {
+    if (r.ok) {
+      document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";
+      msg(r.paused ? "Paused" : "Resumed");
+    }
+  });
+}
+
+function doSkip() {
+  api("/skip").then(function(r) { msg(r.ok ? "Skipped" : "Failed"); });
+}
+
+function sendMessage() {
+  var text = document.getElementById("msg-text").value.trim();
+  var color = hexToRgb(document.getElementById("msg-color").value);
+  if (!text) { msg("Enter a message first."); return; }
+  api("/set", { message: text, message_color: color }).then(function(r) {
+    if (r.ok) { msg("Message sent!"); document.getElementById("msg-text").value = ""; }
+    else msg("Failed: " + (r.error || "unknown"));
+  });
+}
+
+function sysCmd(cmd) {
+  if (!confirm("Really " + cmd + "?")) return;
+  api("/" + cmd).then(function(r) { msg(r.message || "Failed"); });
+}
+
+function displayCmd(action) {
+  api("/display?action=" + action).then(function(r) {
+    msg(r.message || (r.ok ? "Done" : "Failed"));
+  });
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById("drop-zone").classList.remove("drag");
+  uploadFiles(e.dataTransfer.files);
+}
+
+function uploadFiles(files) {
+  if (!files.length) return;
+  var prog = document.querySelector(".progress");
+  var bar = document.getElementById("prog-bar");
+  prog.style.display = "block";
+  bar.style.width = "0%";
+  var done = 0;
+  Array.from(files).forEach(function(file) {
+    var fd = new FormData();
+    fd.append("file", file);
+    fetch("/upload", { method: "POST", body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        done++;
+        bar.style.width = (done / files.length * 100) + "%";
+        if (r.ok) { msg("Uploaded: " + r.filename); loadImageList(); }
+        else msg("Upload failed: " + (r.error || "unknown"));
+        if (done === files.length) setTimeout(function() { prog.style.display = "none"; }, 1000);
+      })
+      .catch(function() { done++; msg("Upload error"); });
+  });
+}
+
+function loadImageList() {
+  api("/images").then(function(r) {
+    var gallery = document.getElementById("upload-gallery");
+    if (!r.files || !r.files.length) {
+      gallery.innerHTML = "<div style='color:#555;padding:0.3em 0;grid-column:1/-1'>No local uploads yet.</div>";
+      return;
+    }
+    gallery.innerHTML = r.files.map(function(item) {
+      var label = item.label || item.filename;
+      var fname = item.filename;
+      var sid = "lbl_" + fname.replace(/[^a-z0-9]/gi, "_");
+      var imgUrl = "/image_file/" + encodeURIComponent(fname);
+      return [
+        "<div class='gallery-item'>",
+        "<img src='" + imgUrl + "' loading='lazy'>",
+        "<div class='gallery-item-body'>",
+        "<input type='text' id='" + sid + "' value='" + label.replace(/'/g, "&#39;") + "' placeholder='Label...'>",
+        "<div class='gallery-item-btns'>",
+        "<button class='btn-save' onclick='saveLabel(\"" + fname + "\", document.getElementById(\"" + sid + "\").value)'>Save</button>",
+        "<button class='btn-del' onclick='deleteImage(\"" + fname + "\")'>Del</button>",
+        "</div></div></div>"
+      ].join("");
+    }).join("");
+  });
+}
+
+function saveLabel(filename, label) {
+  fetch("/label_image?filename=" + encodeURIComponent(filename) + "&label=" + encodeURIComponent(label))
+    .then(function(r) { return r.json(); })
+    .then(function(r) { msg(r.ok ? "Label saved." : "Failed."); });
+}
+
+function deleteImage(filename) {
+  if (!confirm("Delete " + filename + "?")) return;
+  api("/delete_image", { filename: filename }).then(function(r) {
+    msg(r.ok ? "Deleted " + filename : "Failed");
+    if (r.ok) loadImageList();
+  });
+}
+
+function queueAdd() {
+  var text = document.getElementById("q-text").value.trim();
+  var color = hexToRgb(document.getElementById("q-color").value);
+  if (!text) { msg("Enter a message first."); return; }
+  api("/state").then(function(r) {
+    var queue = r.message_queue || [];
+    queue.push({ text: text, color: color });
+    api("/set", { message_queue: queue }).then(function(r2) {
+      if (r2.ok) {
+        msg("Added to playlist.");
+        document.getElementById("q-text").value = "";
+        loadQueue();
+      }
+    });
+  });
+}
+
+function queuePlay() {
+  api("/state").then(function(r) {
+    var queue = r.message_queue || [];
+    for (var i = queue.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
+    }
+    api("/set", { message_queue: queue, queue_index: 0 }).then(function() {
+      loadQueue(); msg("Playing playlist...");
+    });
+  });
+}
+
+function queueStop() {
+  api("/set", { message_queue: [], queue_index: 0 }).then(function(r) {
+    if (r.ok) { msg("Playlist cleared."); loadQueue(); }
+  });
+}
+
+function queueSetLoop(val) {
+  api("/set", { queue_loop: val }).then(function(r) {
+    if (r.ok) msg(val ? "Looping on." : "Looping off.");
+  });
+}
+
+function queueRemove(index) {
+  api("/state").then(function(r) {
+    var queue = r.message_queue || [];
+    queue.splice(index, 1);
+    api("/set", { message_queue: queue, queue_index: 0 }).then(function(r2) {
+      if (r2.ok) loadQueue();
+    });
+  });
+}
+
+function loadQueue() {
+  api("/state").then(function(r) {
+    var queue = r.message_queue || [];
+    var current = r.queue_index || 0;
+    var list = document.getElementById("queue-list");
+    document.getElementById("q-loop").checked = r.queue_loop || false;
+    if (!queue.length) {
+      list.innerHTML = "<div style='color:#555;padding:0.3em 0'>Playlist is empty.</div>";
+      return;
+    }
+    list.innerHTML = queue.map(function(item, i) {
+      var col = item.color ? "rgb(" + item.color.join(",") + ")" : "#ffc800";
+      var bold = i === current ? "font-weight:bold;color:#f0a500;" : "";
+      return "<div class='upload-item' style='" + bold + "'>"
+        + "<span style='color:" + col + "'>" + item.text + "</span>"
+        + "<span class='upload-del' onclick='queueRemove(" + i + ")'>X</span>"
+        + "</div>";
+    }).join("");
+  });
+}
+
+function loadState() {
+  api("/state").then(function(r) {
+    if (!r.brightness) return;
+    document.getElementById("brightness").value = r.brightness;
+    document.getElementById("bright-val").innerText = r.brightness;
+    var spd = Math.round(r.scroll_speed * 100);
+    document.getElementById("scroll_speed").value = spd;
+    document.getElementById("speed-val").innerText = r.scroll_speed.toFixed(2);
+    document.getElementById("static_duration").value = r.static_duration;
+    document.getElementById("dur-val").innerText = r.static_duration;
+    document.getElementById("gif_loops").value = r.gif_loops;
+    document.getElementById("loop-val").innerText = r.gif_loops;
+    document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";
+    var fs = document.getElementById("font-select");
+    if (fs) fs.value = r.font || "default";
+    var mode = r.mode || "everything";
+    document.querySelectorAll(".mode-btn").forEach(function(b) { b.classList.remove("active"); });
+    var mb = document.getElementById("mode-" + mode);
+    if (mb) mb.classList.add("active");
+  });
+}
+
+loadState();
+loadImageList();
+loadQueue();
+</script>
+</body>
+</html>
+"""
 
 
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
 
-def read_control() -> dict:
+def read_control():
     try:
         with open(CONTROL_FILE) as f:
             data = json.load(f)
@@ -411,27 +500,29 @@ def read_control() -> dict:
         return dict(DEFAULT_CONTROL)
 
 
-def write_control(data: dict):
-    with open(CONTROL_FILE, "w") as f:
+def write_control(data):
+    tmp = CONTROL_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, CONTROL_FILE)
 
 
-LABELS_FILE = "/home/narselon/gapkids/gapkids/image_labels.json"
-
-def load_labels() -> dict:
+def load_labels():
     try:
         with open(LABELS_FILE) as f:
             return json.load(f)
     except Exception:
         return {}
 
-def save_labels(labels: dict):
+
+def save_labels(labels):
     tmp = LABELS_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(labels, f, indent=2)
     os.replace(tmp, LABELS_FILE)
 
-def local_images() -> list:
+
+def local_images():
     p = Path(IMAGE_DIR)
     if not p.exists():
         return []
@@ -483,10 +574,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def parse_path(self):
         parsed = urllib.parse.urlparse(self.path)
-        qs     = urllib.parse.parse_qs(parsed.query)
+        qs = urllib.parse.parse_qs(parsed.query)
         return parsed.path, qs
 
-    def read_body(self) -> dict:
+    def read_body(self):
         length = int(self.headers.get("Content-Length", 0))
         if length:
             try:
@@ -508,6 +599,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/images":
             self.send_json({"files": local_images()})
 
+        elif path.startswith("/image_file/"):
+            filename = urllib.parse.unquote(path[len("/image_file/"):])
+            filepath = os.path.join(IMAGE_DIR, filename)
+            if os.path.exists(filepath) and filename.startswith("local_"):
+                ext = Path(filename).suffix.lower()
+                mime = {
+                    ".gif":  "image/gif",
+                    ".png":  "image/png",
+                    ".jpg":  "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".bmp":  "image/bmp",
+                }.get(ext, "application/octet-stream")
+                with open(filepath, "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", len(data))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                try:
+                    self.wfile.write(data)
+                except Exception:
+                    pass
+            else:
+                self.send_json({"error": "not found"}, 404)
+
+        elif path == "/label_image":
+            filename = qs.get("filename", [""])[0]
+            label    = qs.get("label",    [""])[0]
+            if filename and label:
+                labels = load_labels()
+                labels[filename] = label
+                save_labels(labels)
+                self.send_json({"ok": True})
+            else:
+                self.send_json({"error": "missing params"}, 400)
+
         elif path == "/toggle_pause":
             ctrl = read_control()
             ctrl["paused"] = not ctrl["paused"]
@@ -520,24 +648,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             write_control(ctrl)
             self.send_json({"ok": True})
 
-        elif path == "/label_image":
-            # GET /label_image?filename=X&label=Y
-            filename = qs.get("filename", [""])[0]
-            label    = qs.get("label", [""])[0]
-            if filename and label:
-                labels = load_labels()
-                labels[filename] = label
-                save_labels(labels)
-                self.send_json({"ok": True})
-            else:
-                self.send_json({"error": "missing filename or label"}, 400)
-
         elif path == "/display":
             action = qs.get("action", [""])[0]
             if action == "stop":
-                subprocess.Popen(["pkill", "-f", "matrix_display.py"])
+                subprocess.call(["pkill", "-f", "matrix_display.py"])
                 self.send_json({"ok": True, "message": "Display stopped."})
             elif action == "start":
+                subprocess.call(["pkill", "-f", "matrix_display.py"])
+                import time; time.sleep(1)
                 subprocess.Popen([
                     "/usr/bin/python3",
                     "/home/narselon/gapkids/gapkids/matrix_display.py"
