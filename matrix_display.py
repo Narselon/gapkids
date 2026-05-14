@@ -99,10 +99,11 @@ def create_matrix(brightness: int = DEFAULT_BRIGHTNESS) -> RGBMatrix:
     options.chain_length     = 1
     options.parallel         = 1
     options.hardware_mapping = "adafruit-hat"
-    options.brightness       = brightness
-    options.gpio_slowdown    = 3
+    options.brightness       = 100
+    options.gpio_slowdown    = 2
     options.pwm_lsb_nanoseconds = 130
     options.drop_privileges  = False
+    options.led_rgb_sequence = "RGB"
     return RGBMatrix(options=options)
 
 
