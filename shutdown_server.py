@@ -675,6 +675,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 subprocess.call(["pkill", "-f", "matrix_display.py"])
                 import time; time.sleep(1)
                 subprocess.Popen([
+                    "sudo",
                     "/usr/bin/python3",
                     "/home/narselon/gapkids/gapkids/matrix_display.py"
                 ])

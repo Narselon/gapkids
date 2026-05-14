@@ -62,12 +62,19 @@ DEFAULT_CONTROL = {
 
 def read_control() -> dict:
     try:
-        with open(CONTROL_FILE) as f:
+        # Check if file exists before opening to prevent IO errors
+        if not os.path.exists(CONTROL_FILE):
+            return dict(DEFAULT_CONTROL)
+            
+        with open(CONTROL_FILE, "r") as f:
             data = json.load(f)
+            # Ensure any missing keys are filled by defaults
             for k, v in DEFAULT_CONTROL.items():
                 data.setdefault(k, v)
             return data
-    except Exception:
+    except (json.JSONDecodeError, IOError, Exception):
+        # If the file is locked by the server or malformed, 
+        # return defaults instead of crashing the whole display.
         return dict(DEFAULT_CONTROL)
     
 def write_control(data):
@@ -94,7 +101,8 @@ def create_matrix(brightness: int = DEFAULT_BRIGHTNESS) -> RGBMatrix:
     options.hardware_mapping = "adafruit-hat"
     options.brightness       = brightness
     options.gpio_slowdown    = 3
-    options.drop_privileges  = True
+    options.pwm_lsb_nanoseconds = 130
+    options.drop_privileges  = False
     return RGBMatrix(options=options)
 
 
