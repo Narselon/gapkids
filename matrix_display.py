@@ -69,7 +69,11 @@ def read_control() -> dict:
             return data
     except Exception:
         return dict(DEFAULT_CONTROL)
-
+    
+def write_control(data):
+    with open(CONTROL_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+        
 def clear_flag(key: str):
     ctrl = read_control()
     ctrl[key] = False if key != "message" else ""
