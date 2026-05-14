@@ -25,7 +25,7 @@ MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
 IMAGE_FOLDER  = "/home/narselon/gapkids/gapkids/images"
 CONFIG_FILE   = "./display_config.json"
-CONTROL_FILE  = "./control.json"
+CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
 
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
@@ -73,7 +73,7 @@ def read_control() -> dict:
 def write_control(data):
     with open(CONTROL_FILE, "w") as f:
         json.dump(data, f, indent=2)
-        
+
 def clear_flag(key: str):
     ctrl = read_control()
     ctrl[key] = False if key != "message" else ""
@@ -193,27 +193,46 @@ def display_scroll(matrix: RGBMatrix, img: Image.Image,
 
 
 def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LOOPS):
+    # 1. Prepare frames while preserving Alpha channel
     frames, delays = [], []
     for frame in ImageSequence.Iterator(img):
-        frames.append(frame.convert("RGB").resize((MATRIX_WIDTH, MATRIX_HEIGHT), Image.LANCZOS))
+        # Resize first, but keep it in RGBA to preserve transparency
+        resized_frame = frame.resize((MATRIX_WIDTH, MATRIX_HEIGHT), Image.LANCZOS).convert("RGBA")
+        frames.append(resized_frame)
         delays.append(frame.info.get("duration", int(DEFAULT_GIF_FRAME_DELAY * 1000)) / 1000.0)
+    
     if not frames:
         return
+
+    # 2. Keep your duration-based loop logic
     total_duration = sum(delays)
     if total_duration < 2.0:
         loops = max(loops, 8)
     elif total_duration < 5.0:
         loops = max(loops, 4)
+
     canvas = matrix.CreateFrameCanvas()
+    
+    # 3. Playback Loop
     for _ in range(loops):
-        for frame, delay in zip(frames, delays):
+        for frame_rgba, delay in zip(frames, delays):
             if should_interrupt():
                 return
+            
+            # Check pause state from web controls
             ctrl = read_control()
-            if ctrl["paused"]:
+            while ctrl["paused"]:
+                if should_interrupt(): return
                 time.sleep(0.2)
-                continue
-            canvas.SetImage(frame)
+                ctrl = read_control()
+
+            # --- THE TRANSPARENCY FIX ---
+            # Create a black background
+            bg = Image.new("RGB", (MATRIX_WIDTH, MATRIX_HEIGHT), (0, 0, 0))
+            # Paste the RGBA frame onto the black background using itself as the mask
+            bg.paste(frame_rgba, (0, 0), frame_rgba)
+            
+            canvas.SetImage(bg) # bg is already RGB now
             canvas = matrix.SwapOnVSync(canvas)
             time.sleep(delay)
 
