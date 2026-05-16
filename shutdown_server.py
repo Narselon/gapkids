@@ -169,11 +169,7 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
 <div class="card">
   <h2>Font</h2>
   <select id="font-select" onchange="setSetting('font', this.value)">
-    <option value="default">Default (DejaVu Sans Bold)</option>
-    <option value="serif">Serif</option>
-    <option value="papyrus">Papyrus Style (Free Serif Bold)</option>
-    <option value="mono">Monospace</option>
-    <option value="narrow">Narrow</option>
+    <option value="DejaVuSans-Bold">Loading fonts...</option>
   </select>
 </div>
 
@@ -480,16 +476,32 @@ function updateUI(r) {
     document.getElementById("loop-val").innerText = r.gif_loops;
     document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";
     var fs = document.getElementById("font-select");
-    if (fs) fs.value = r.font || "default";
+    if (fs) fs.value = r.font || "DejaVuSans-Bold";
     var mode = r.mode || "everything";
     document.querySelectorAll(".mode-btn").forEach(function(b) { b.classList.remove("active"); });
     var mb = document.getElementById("mode-" + mode);
     if (mb) mb.classList.add("active");
 }
 
+function loadFonts() {
+  api("/fonts").then(function(r) {
+    var sel = document.getElementById("font-select");
+    if (!r.fonts || !r.fonts.length) return;
+    var current = sel.value;
+    sel.innerHTML = r.fonts.map(function(f) {
+      return "<option value='" + f.name + "'>" + f.name + "</option>";
+    }).join("");
+    // Restore selection if still valid
+    api("/state").then(function(s) {
+      sel.value = s.font || "DejaVuSans-Bold";
+    });
+  });
+}
+
 loadState();
 loadImageList();
 loadQueue();
+loadFonts();
 </script>
 </body>
 </html>
@@ -613,6 +625,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/state":
             self.send_json(read_control())
+
+        elif path == "/fonts":
+            from scul_mission import get_font_list
+            self.send_json({"fonts": get_font_list()})
 
         elif path == "/images":
             self.send_json({"files": local_images()})

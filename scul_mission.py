@@ -37,20 +37,71 @@ SCROLL_PADDING  = 32             # blank pixels of lead-in before text
 ACTIVE_FONT     = "default"      # set via control.json font field
 
 # Font registry — name -> list of paths to try in order
-FONT_REGISTRY = {
-    "default":    ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
-    "dejavu":     ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
-    "mono":       ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
-    "serif":      ["/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
-                   "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"],
-    "papyrus":    ["/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-                   "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"],
-    "pixel":      ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"],
-    "narrow":     ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
-}
+FONT_REGISTRY = {}  # populated dynamically by scan_fonts()
 
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # fallback
+FONT_SEARCH_DIRS = [
+    "/usr/share/fonts/truetype",
+    "/usr/share/fonts/opentype",
+    "/usr/local/share/fonts",
+    os.path.expanduser("~/.fonts"),
+]
+
+def scan_fonts() -> dict:
+    """
+    Scan installed font directories and return a dict of
+    display_name -> file_path for all usable .ttf/.otf files.
+    """
+    found = {}
+    for directory in FONT_SEARCH_DIRS:
+        if not os.path.exists(directory):
+            continue
+        for root, dirs, files in os.walk(directory):
+            for fname in files:
+                if fname.lower().endswith((".ttf", ".otf")):
+                    path = os.path.join(root, fname)
+                    # Use filename without extension as display name
+                    name = os.path.splitext(fname)[0]
+                    # Skip duplicates, prefer first found
+                    if name not in found:
+                        found[name] = path
+    # Always ensure a default fallback exists
+    default = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    if "DejaVuSans-Bold" not in found and os.path.exists(default):
+        found["DejaVuSans-Bold"] = default
+    return dict(sorted(found.items()))
+
+# Populate at import time
+FONT_REGISTRY = scan_fonts()
+
+def load_font(font_name: str = "default", size: int = FONT_SIZE):
+    """Load a font by name from the registry, falling back gracefully."""
+    # Handle legacy names
+    legacy = {
+        "default": "DejaVuSans-Bold",
+        "mono":    "DejaVuSansMono-Bold",
+        "serif":   "DejaVuSerif-Bold",
+        "narrow":  "DejaVuSansCondensed-Bold",
+        "papyrus": "FreeSerifBold",
+        "pixel":   "DejaVuSansMono",
+    }
+    resolved = legacy.get(font_name, font_name)
+    path = FONT_REGISTRY.get(resolved) or FONT_REGISTRY.get(font_name)
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            pass
+    # Fallback: try any available font
+    for p in FONT_REGISTRY.values():
+        try:
+            return ImageFont.truetype(p, size)
+        except (IOError, OSError):
+            continue
+    return ImageFont.load_default()
+
+def get_font_list() -> list:
+    """Return sorted list of {name, path} dicts for the web UI."""
+    return [{"name": k, "path": v} for k, v in sorted(FONT_REGISTRY.items())]
 
 MATRIX_WIDTH    = 32
 MATRIX_HEIGHT   = 32
