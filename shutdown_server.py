@@ -547,6 +547,7 @@ def local_images():
     labels = load_labels()
     result = []
     for f in sorted(p.iterdir()):
+        labels = load_labels() #
         if f.name.startswith("local_") and f.suffix.lower() in ALLOWED_EXTENSIONS:
             result.append({
                 "filename": f.name,
