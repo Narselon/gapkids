@@ -791,5 +791,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.makedirs(IMAGE_DIR, exist_ok=True)
+    
+    # Check/initialize control tracking file state before listening
     if not os.path.exists(CONTROL_FILE):
-        write_control
+        write_control(dict(DEFAULT_CONTROL))
+
+    # Spawn standard multi-threaded HTTP platform listener natively available in Python 3.7+
+    server_address = ("", PORT)
+    httpd = http.server.ThreadingHTTPServer(server_address, Handler)
+    print(f"[INFO] Server executing. Point browser to http://gapkids.local:{PORT}")
+    
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[INFO] Stopping server pipeline.")
+        httpd.server_close()
