@@ -9,6 +9,8 @@ import subprocess
 import json
 import os
 import uuid
+import time
+import hashlib
 import urllib.parse
 from pathlib import Path
 
@@ -16,6 +18,13 @@ PORT         = 8080
 CONTROL_FILE = "/home/narselon/gapkids/gapkids/control.json"
 IMAGE_DIR    = "/home/narselon/gapkids/gapkids/images"
 LABELS_FILE  = "/home/narselon/gapkids/gapkids/image_labels.json"
+LOG_FILE     = "/home/narselon/gapkids/gapkids/matrix.log"
+
+# ── Password protection ──────────────────────────────────────────────────────
+# Change this to your desired password. Sessions last 24 hours.
+WEB_PASSWORD  = "gapkids"
+SESSION_TOKEN = hashlib.sha256(WEB_PASSWORD.encode()).hexdigest()[:16]
+SESSIONS      = set()  # in-memory session store
 
 DEFAULT_CONTROL = {
     "brightness":      80,
@@ -31,9 +40,56 @@ DEFAULT_CONTROL = {
     "queue_loop":      False,
     "queue_index":     0,
     "font":            "default",
+    "pinned_image":    "",
 }
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+
+LOGIN_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GapKids Pi - Login</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #111; color: #eee;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 1em;
+}
+.login-card {
+  background: #1e1e1e; border-radius: 12px; padding: 2em;
+  width: 100%; max-width: 320px; text-align: center;
+}
+h1 { font-size: 1.3em; margin-bottom: 1.5em; }
+input[type=password] {
+  width: 100%; padding: 0.8em; border-radius: 8px;
+  border: 1px solid #333; background: #2a2a2a;
+  color: #eee; font-size: 1em; margin-bottom: 1em;
+}
+button {
+  width: 100%; padding: 0.8em; border: none;
+  border-radius: 10px; background: #f0a500; color: #111;
+  font-size: 1em; font-weight: 600; cursor: pointer;
+}
+.error { color: #c0392b; font-size: 0.85em; margin-top: 0.8em; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>GapKids Pi</h1>
+  <form method="POST" action="/login">
+    <input type="password" name="password" placeholder="Password" autofocus>
+    <button type="submit">Unlock</button>
+    {error}
+  </form>
+</div>
+</body>
+</html>
+"""
 
 HTML = """\
 <!DOCTYPE html>
@@ -49,7 +105,7 @@ body {
   background: #111; color: #eee;
   padding: 1.2em; max-width: 480px; margin: auto; padding-bottom: 3em;
 }
-h1 { font-size: 1.3em; margin-bottom: 1em; text-align: center; }
+h1 { font-size: 1.3em; margin-bottom: 0.5em; text-align: center; }
 h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin: 1.2em 0 0.5em; }
 .card { background: #1e1e1e; border-radius: 12px; padding: 1em; margin-bottom: 0.8em; }
 label { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 0.3em; }
@@ -97,10 +153,19 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
 }
 .gallery-item {
   background: #1a1a1a; border-radius: 8px; overflow: hidden;
+  cursor: pointer; position: relative;
 }
 .gallery-item img {
   width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
 }
+.gallery-item.pinned { outline: 3px solid #f0a500; }
+.pin-badge {
+  position: absolute; top: 3px; right: 3px;
+  background: #f0a500; color: #111; font-size: 0.6em;
+  font-weight: bold; padding: 1px 4px; border-radius: 4px;
+  display: none;
+}
+.gallery-item.pinned .pin-badge { display: block; }
 .gallery-item-body { padding: 0.3em; }
 .gallery-item input {
   width: 100%; padding: 0.2em; font-size: 0.75em;
@@ -117,12 +182,35 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
   padding: 0.2em 0.4em; border: none; border-radius: 4px;
   background: #c0392b; color: #fff; cursor: pointer; font-size: 0.75em;
 }
+.btn-pin {
+  padding: 0.2em 0.4em; border: none; border-radius: 4px;
+  background: #555; color: #fff; cursor: pointer; font-size: 0.75em;
+}
+.btn-pin.active { background: #f0a500; color: #111; }
 .upload-item { display: flex; justify-content: space-between; padding: 0.3em 0; border-bottom: 1px solid #2a2a2a; }
 .upload-del { color: #c0392b; cursor: pointer; font-weight: bold; padding: 0 0.3em; }
+/* Status bar */
+.status-bar {
+  display: flex; align-items: center; gap: 0.5em;
+  font-size: 0.8em; margin-bottom: 1em; justify-content: center;
+}
+.status-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #555; flex-shrink: 0;
+}
+.status-dot.running { background: #27ae60; }
+.status-dot.stopped { background: #c0392b; }
+.status-dot.unknown { background: #f0a500; }
+.status-detail { color: #666; font-size: 0.85em; margin-top: 0.2em; text-align: center; }
 </style>
 </head>
 <body>
 <h1>GapKids Pi</h1>
+<div class="status-bar">
+  <div class="status-dot" id="display-dot"></div>
+  <span id="display-status-text">Checking display...</span>
+</div>
+<div class="status-detail" id="display-log-line"></div>
 
 <div class="card">
   <h2>Display Mode</h2>
@@ -169,7 +257,7 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
 <div class="card">
   <h2>Font</h2>
   <select id="font-select" onchange="setSetting('font', this.value)">
-    <option value="DejaVuSans-Bold">Loading fonts...</option>
+    <option value="default">Loading fonts...</option>
   </select>
 </div>
 
@@ -217,6 +305,7 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
 
 <div class="card">
   <h2>Upload Images</h2>
+  <p style="font-size:0.8em;color:#666;margin-top:0.3em">Tap a thumbnail to pin it on the display. Tap again to unpin.</p>
   <div class="upload-area" id="drop-zone"
     onclick="document.getElementById('file-input').click()"
     ondragover="event.preventDefault();this.classList.add('drag')"
@@ -235,12 +324,15 @@ input[type=color] { width: 44px; height: 36px; border: none; border-radius: 6px;
   <div class="row">
     <button class="btn-orange" onclick="sysCmd('reboot')">Reboot</button>
     <button class="btn-red" onclick="sysCmd('shutdown')">Shut Down</button>
+    <button class="btn-grey" onclick="doLogout()">Logout</button>
   </div>
 </div>
 
 <div id="status"></div>
 
 <script>
+var currentPinned = "";
+
 function msg(t) {
   document.getElementById("status").innerText = t;
   setTimeout(function() { document.getElementById("status").innerText = ""; }, 4000);
@@ -255,7 +347,10 @@ function api(path, body) {
     ? { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) }
     : {};
   return fetch(path, opts)
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (r.status === 401) { window.location.href = "/"; return {}; }
+      return r.json();
+    })
     .catch(function(e) { return { error: e.toString() }; });
 }
 
@@ -305,7 +400,12 @@ function sysCmd(cmd) {
 function displayCmd(action) {
   api("/display?action=" + action).then(function(r) {
     msg(r.message || (r.ok ? "Done" : "Failed"));
+    setTimeout(checkDisplayStatus, 3000);
   });
+}
+
+function doLogout() {
+  fetch("/logout").then(function() { window.location.href = "/"; });
 }
 
 function handleDrop(e) {
@@ -337,6 +437,17 @@ function uploadFiles(files) {
   });
 }
 
+function togglePin(fname) {
+  var newPin = (currentPinned === fname) ? "" : fname;
+  api("/set", { pinned_image: newPin }).then(function(r) {
+    if (r.ok) {
+      currentPinned = newPin;
+      msg(newPin ? "Pinned: " + newPin : "Unpinned.");
+      loadImageList();
+    }
+  });
+}
+
 function loadImageList() {
   api("/images").then(function(r) {
     var gallery = document.getElementById("upload-gallery");
@@ -349,18 +460,21 @@ function loadImageList() {
       var fname = item.filename;
       var sid = "lbl_" + fname.replace(/[^a-z0-9]/gi, "_");
       var imgUrl = "/image_file/" + encodeURIComponent(fname);
-      
-      return `
-        <div class='gallery-item'>
-          <img src='${imgUrl}' loading='lazy'>
-          <div class='gallery-item-body'>
-            <input type='text' id='${sid}' value='${label.replace(/'/g, "&#39;")}' placeholder='Label...'>
-            <div class='gallery-item-btns'>
-              <button class='btn-save' onclick="saveLabel('${fname}', document.getElementById('${sid}').value)">Save</button>
-              <button class='btn-del' onclick="deleteImage('${fname}')">Del</button>
-            </div>
-          </div>
-        </div>`;
+      var isPinned = fname === currentPinned;
+      var pinClass = isPinned ? "pinned" : "";
+      var pinBtnClass = isPinned ? "btn-pin active" : "btn-pin";
+      var pinLabel = isPinned ? "Unpin" : "Pin";
+      return [
+        "<div class='gallery-item " + pinClass + "' onclick='togglePin(\"" + fname + "\")'>",
+        "<div class='pin-badge'>PIN</div>",
+        "<img src='" + imgUrl + "' loading='lazy'>",
+        "<div class='gallery-item-body'>",
+        "<input type='text' id='" + sid + "' value='" + label.replace(/'/g, "&#39;") + "' placeholder='Label...' onclick='event.stopPropagation()'>",
+        "<div class='gallery-item-btns'>",
+        "<button class='btn-save' onclick=\"event.stopPropagation();saveLabel('" + fname + "', document.getElementById('" + sid + "').value)\">Save</button>",
+        "<button class='btn-del' onclick=\"event.stopPropagation();deleteImage('" + fname + "')\">Del</button>",
+        "</div></div></div>"
+      ].join("");
     }).join("");
   });
 }
@@ -373,6 +487,10 @@ function saveLabel(filename, label) {
 
 function deleteImage(filename) {
   if (!confirm("Delete " + filename + "?")) return;
+  if (filename === currentPinned) {
+    api("/set", { pinned_image: "" });
+    currentPinned = "";
+  }
   api("/delete_image", { filename: filename }).then(function(r) {
     msg(r.ok ? "Deleted " + filename : "Failed");
     if (r.ok) loadImageList();
@@ -452,15 +570,40 @@ function loadQueue() {
   });
 }
 
-function loadState() {
-  if (typeof control !== 'undefined') {
-    updateUI(control);
-  } else {
-    api("/state").then(r => updateUI(r));
-  }
+function loadFonts() {
+  api("/fonts").then(function(r) {
+    if (!r.fonts || !r.fonts.length) return;
+    var sel = document.getElementById("font-select");
+    var current = sel.value;
+    sel.innerHTML = r.fonts.map(function(f) {
+      return "<option value='" + f.name + "'>" + f.name + "</option>";
+    }).join("");
+    api("/state").then(function(s) {
+      sel.value = s.font || "DejaVuSans-Bold";
+    });
+  });
 }
 
-function updateUI(r) {
+function checkDisplayStatus() {
+  api("/display_status").then(function(r) {
+    var dot = document.getElementById("display-dot");
+    var txt = document.getElementById("display-status-text");
+    var log = document.getElementById("display-log-line");
+    if (r.running) {
+      dot.className = "status-dot running";
+      txt.innerText = "Display running";
+    } else {
+      dot.className = "status-dot stopped";
+      txt.innerText = "Display stopped";
+    }
+    if (r.last_log) {
+      log.innerText = r.last_log;
+    }
+  });
+}
+
+function loadState() {
+  api("/state").then(function(r) {
     if (!r.brightness) return;
     document.getElementById("brightness").value = r.brightness;
     document.getElementById("bright-val").innerText = r.brightness;
@@ -473,23 +616,12 @@ function updateUI(r) {
     document.getElementById("loop-val").innerText = r.gif_loops;
     document.getElementById("pause-btn").innerText = r.paused ? "Resume" : "Pause";
     var fs = document.getElementById("font-select");
-    if (fs) fs.value = r.font || "DejaVuSans-Bold";
+    if (fs && r.font) fs.value = r.font;
     var mode = r.mode || "everything";
     document.querySelectorAll(".mode-btn").forEach(function(b) { b.classList.remove("active"); });
     var mb = document.getElementById("mode-" + mode);
     if (mb) mb.classList.add("active");
-}
-
-function loadFonts() {
-  api("/fonts").then(function(r) {
-    var sel = document.getElementById("font-select");
-    if (!r.fonts || !r.fonts.length) return;
-    sel.innerHTML = r.fonts.map(function(f) {
-      return "<option value='" + f.name + "'>" + f.name + "</option>";
-    }).join("");
-    api("/state").then(function(s) {
-      sel.value = s.font || "DejaVuSans-Bold";
-    });
+    currentPinned = r.pinned_image || "";
   });
 }
 
@@ -497,6 +629,8 @@ loadState();
 loadImageList();
 loadQueue();
 loadFonts();
+checkDisplayStatus();
+setInterval(checkDisplayStatus, 30000);
 </script>
 </body>
 </html>
@@ -522,7 +656,7 @@ def write_control(data):
     tmp = CONTROL_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
-    os.path.replace(tmp, CONTROL_FILE)
+    os.replace(tmp, CONTROL_FILE)
 
 
 def load_labels():
@@ -537,7 +671,7 @@ def save_labels(labels):
     tmp = LABELS_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(labels, f, indent=2)
-    os.path.replace(tmp, LABELS_FILE)
+    os.replace(tmp, LABELS_FILE)
 
 
 def local_images():
@@ -547,13 +681,48 @@ def local_images():
     labels = load_labels()
     result = []
     for f in sorted(p.iterdir()):
-        labels = load_labels() #
         if f.name.startswith("local_") and f.suffix.lower() in ALLOWED_EXTENSIONS:
             result.append({
                 "filename": f.name,
                 "label": labels.get(f.name, f.name)
             })
     return result
+
+
+def get_display_status():
+    """Check if matrix_display.py is running and get last log line."""
+    result = subprocess.run(
+        ["pgrep", "-f", "matrix_display.py"],
+        capture_output=True
+    )
+    running = result.returncode == 0
+    last_log = ""
+    try:
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE) as f:
+                lines = f.readlines()
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line:
+                        last_log = line
+                        break
+    except Exception:
+        pass
+    return {"running": running, "last_log": last_log}
+
+
+def get_cookie_token(headers):
+    """Extract session token from Cookie header."""
+    cookie_header = headers.get("Cookie", "")
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if part.startswith("session="):
+            return part[8:]
+    return ""
+
+
+def is_authenticated(headers):
+    return get_cookie_token(headers) in SESSIONS
 
 
 # ─────────────────────────────────────────────
@@ -578,12 +747,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
 
-    def serve_html(self):
-        control = read_control()
-        rendered_html = HTML.replace("loadState();", f"let control = {json.dumps(control)}; loadState();")
-        
-        body = rendered_html.encode()
-        self.send_response(200)
+    def serve_html(self, html, code=200):
+        body = html.encode()
+        self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", len(body))
         self.send_header("Connection", "close")
@@ -593,6 +759,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
         except Exception:
             pass
+
+    def redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Connection", "close")
+        self.end_headers()
 
     def parse_path(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -608,22 +780,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {}
         return {}
 
+    def read_form_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length:
+            raw = self.rfile.read(length).decode()
+            return dict(urllib.parse.parse_qsl(raw))
+        return {}
+
     def do_GET(self):
         path, qs = self.parse_path()
 
         if path in ("/", "/index.html"):
-            self.serve_html()
+            self.serve_html(HTML)
             return
 
         if path == "/state":
             self.send_json(read_control())
 
-        elif path == "/fonts":
-            from scul_mission import get_font_list
-            self.send_json({"fonts": get_font_list()})
-
         elif path == "/images":
             self.send_json({"files": local_images()})
+
+        elif path == "/display_status":
+            self.send_json(get_display_status())
+
+        elif path == "/fonts":
+            try:
+                from scul_mission import get_font_list
+                self.send_json({"fonts": get_font_list()})
+            except Exception as e:
+                self.send_json({"fonts": [{"name": "default", "path": ""}]})
 
         elif path.startswith("/image_file/"):
             filename = urllib.parse.unquote(path[len("/image_file/"):])
@@ -681,9 +866,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "message": "Display stopped."})
             elif action == "start":
                 subprocess.call(["pkill", "-f", "matrix_display.py"])
-                import time; time.sleep(1)
+                time.sleep(1)
                 subprocess.Popen([
-                    "sudo",
                     "/usr/bin/python3",
                     "/home/narselon/gapkids/gapkids/matrix_display.py"
                 ])
@@ -705,13 +889,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path, qs = self.parse_path()
 
+        # Login handler - no auth required
         if path == "/set":
             body = self.read_body()
             ctrl = read_control()
             for key in ("brightness", "scroll_speed", "static_duration",
                         "gif_loops", "message", "message_color",
                         "paused", "skip", "mode",
-                        "message_queue", "queue_loop", "queue_index", "font"):
+                        "message_queue", "queue_loop", "queue_index",
+                        "font", "pinned_image"):
                 if key in body:
                     ctrl[key] = body[key]
             write_control(ctrl)
@@ -792,18 +978,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.makedirs(IMAGE_DIR, exist_ok=True)
-    
-    # Check/initialize control tracking file state before listening
     if not os.path.exists(CONTROL_FILE):
-        write_control(dict(DEFAULT_CONTROL))
-
-    # Spawn standard multi-threaded HTTP platform listener natively available in Python 3.7+
-    server_address = ("", PORT)
-    httpd = http.server.ThreadingHTTPServer(server_address, Handler)
-    print(f"[INFO] Server executing. Point browser to http://gapkids.local:{PORT}")
-    
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[INFO] Stopping server pipeline.")
-        httpd.server_close()
+        write_control(DEFAULT_CONTROL)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print("[Control Server] http://gapkids.local:8080")
+    server.serve_forever()

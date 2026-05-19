@@ -23,13 +23,10 @@ from scul_mission import get_mission_name, scroll_mission_name
 
 MATRIX_WIDTH  = 32
 MATRIX_HEIGHT = 32
-
-# Absolute paths aligned with the control_server.py configuration
 IMAGE_FOLDER  = "/home/narselon/gapkids/gapkids/images"
-CONFIG_FILE   = "/home/narselon/gapkids/gapkids/display_config.json"
-CONTROL_FILE  = "/home/narselon/gapkids/gapkids/control.json"
+CONFIG_FILE   = "./display_config.json"
+CONTROL_FILE  = "./control.json"
 
-# Defaults (overridden live by control.json)
 DEFAULT_BRIGHTNESS       = 80
 DEFAULT_STATIC_DURATION  = 8.0
 DEFAULT_SCROLL_SPEED     = 0.03
@@ -44,7 +41,7 @@ SCUL_EVERY_N_IMAGES = 5
 
 
 # ─────────────────────────────────────────────
-# CONTROL FILE HANDLERS
+# CONTROL FILE
 # ─────────────────────────────────────────────
 
 DEFAULT_CONTROL = {
@@ -57,39 +54,28 @@ DEFAULT_CONTROL = {
     "message_color":   [255, 200, 0],
     "paused":          False,
     "mode":            "everything",  # everything | text_only | images_only | off
-    "message_queue":   [],            # tracked playlist
-    "queue_loop":      False,         # loop playlist continuously
-    "queue_index":     0,             # current position in playlist
-    "font":            "default",     # font selection
+    "message_queue":   [],            # list of {text, color} dicts
+    "queue_loop":      False,         # loop the queue continuously
+    "queue_index":     0,             # current position in queue
+    "font":            "default",     # font name from FONT_REGISTRY
+    "pinned_image":    "",             # filename to hold on display
 }
 
 def read_control() -> dict:
     try:
-        if not os.path.exists(CONTROL_FILE):
-            return dict(DEFAULT_CONTROL)
-            
-        with open(CONTROL_FILE, "r") as f:
+        with open(CONTROL_FILE) as f:
             data = json.load(f)
-            # Ensure missing keys from the web server are filled by defaults
             for k, v in DEFAULT_CONTROL.items():
                 data.setdefault(k, v)
             return data
-    except (json.JSONDecodeError, IOError, Exception):
-        # Gracefully handle momentary file locks if server is writing simultaneously
+    except Exception:
         return dict(DEFAULT_CONTROL)
 
-def write_control(data):
-    """Atomic write to eliminate file corruption when web panel edits simultaneously."""
-    tmp = CONTROL_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, CONTROL_FILE)
-
 def clear_flag(key: str):
-    """Resets a control flag safely after acting on it."""
     ctrl = read_control()
     ctrl[key] = False if key != "message" else ""
-    write_control(ctrl)
+    with open(CONTROL_FILE, "w") as f:
+        json.dump(ctrl, f, indent=2)
 
 
 # ─────────────────────────────────────────────
@@ -104,10 +90,8 @@ def create_matrix(brightness: int = DEFAULT_BRIGHTNESS) -> RGBMatrix:
     options.parallel         = 1
     options.hardware_mapping = "adafruit-hat"
     options.brightness       = brightness
-    options.gpio_slowdown    = 2
-    options.pwm_lsb_nanoseconds = 130
-    options.drop_privileges  = False  # Keeps root privileges active to prevent memory access faults
-    options.led_rgb_sequence = "RGB"
+    options.gpio_slowdown    = 3
+    options.drop_privileges  = True
     return RGBMatrix(options=options)
 
 
@@ -162,7 +146,6 @@ def display_static(matrix: RGBMatrix, img: Image.Image, duration: float):
     canvas = matrix.CreateFrameCanvas()
     canvas.SetImage(frame)
     matrix.SwapOnVSync(canvas)
-    
     deadline = time.time() + duration
     while time.time() < deadline:
         if should_interrupt():
@@ -197,12 +180,10 @@ def display_scroll(matrix: RGBMatrix, img: Image.Image,
             continue
         if duration and (time.time() - start_time) >= duration:
             break
-            
         if direction in ("left", "right"):
             crop = scrollable.crop((step, 0, step + MATRIX_WIDTH, MATRIX_HEIGHT))
         else:
             crop = scrollable.crop((0, step, MATRIX_WIDTH, step + MATRIX_HEIGHT))
-            
         canvas.SetImage(crop)
         canvas = matrix.SwapOnVSync(canvas)
         time.sleep(ctrl.get("scroll_speed", speed))
@@ -211,39 +192,25 @@ def display_scroll(matrix: RGBMatrix, img: Image.Image,
 def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LOOPS):
     frames, delays = [], []
     for frame in ImageSequence.Iterator(img):
-        # Keeps frame in RGBA format to preserve transparency mappings
-        resized_frame = frame.resize((MATRIX_WIDTH, MATRIX_HEIGHT), Image.LANCZOS).convert("RGBA")
-        frames.append(resized_frame)
+        frames.append(frame.convert("RGB").resize((MATRIX_WIDTH, MATRIX_HEIGHT), Image.LANCZOS))
         delays.append(frame.info.get("duration", int(DEFAULT_GIF_FRAME_DELAY * 1000)) / 1000.0)
-    
     if not frames:
         return
-
     total_duration = sum(delays)
     if total_duration < 2.0:
         loops = max(loops, 8)
     elif total_duration < 5.0:
         loops = max(loops, 4)
-
     canvas = matrix.CreateFrameCanvas()
-    
     for _ in range(loops):
-        for frame_rgba, delay in zip(frames, delays):
+        for frame, delay in zip(frames, delays):
             if should_interrupt():
                 return
-            
             ctrl = read_control()
-            while ctrl["paused"]:
-                if should_interrupt(): 
-                    return
+            if ctrl["paused"]:
                 time.sleep(0.2)
-                ctrl = read_control()
-
-            # Transparency Fix: Layer the RGBA frame onto a solid black base canvas using its alpha channel
-            bg = Image.new("RGB", (MATRIX_WIDTH, MATRIX_HEIGHT), (0, 0, 0))
-            bg.paste(frame_rgba, (0, 0), frame_rgba)
-            
-            canvas.SetImage(bg)
+                continue
+            canvas.SetImage(frame)
             canvas = matrix.SwapOnVSync(canvas)
             time.sleep(delay)
 
@@ -253,7 +220,6 @@ def display_gif(matrix: RGBMatrix, img: Image.Image, loops: int = DEFAULT_GIF_LO
 # ─────────────────────────────────────────────
 
 def display_message(matrix: RGBMatrix, text: str, color: list, clear_message_flag: bool = True):
-    """Scrolls a custom text message dispatched from the web control interface."""
     from scul_mission import render_text_banner, SCROLL_SPEED
     ctrl = read_control()
     font_name = ctrl.get("font", "default")
@@ -261,6 +227,7 @@ def display_message(matrix: RGBMatrix, text: str, color: list, clear_message_fla
 
     canvas      = matrix.CreateFrameCanvas()
     total_steps = banner.width - MATRIX_WIDTH
+    ctrl        = read_control()
     speed       = ctrl.get("scroll_speed", SCROLL_SPEED)
 
     for step in range(total_steps):
@@ -276,7 +243,7 @@ def display_message(matrix: RGBMatrix, text: str, color: list, clear_message_fla
 
 
 # ─────────────────────────────────────────────
-# FILE SCANNER
+# FILE SCANNER & DISPATCHER
 # ─────────────────────────────────────────────
 
 def scan_images(folder: str) -> list:
@@ -290,10 +257,6 @@ def scan_images(folder: str) -> list:
         files.extend(folder_path.glob(f"*{ext.upper()}"))
     return list(set(files))
 
-
-# ─────────────────────────────────────────────
-# DISPLAY DISPATCHER
-# ─────────────────────────────────────────────
 
 def display_file(matrix: RGBMatrix, filepath: Path, config: dict):
     ctrl     = read_control()
@@ -352,19 +315,20 @@ signal.signal(signal.SIGTERM, handle_signal)
 def main():
     global running
 
-    # Safety delay giving the adafruit-hat hardware rails time to settle down
+    # Allow HAT to fully initialize before driving the matrix
     print("[INFO] Waiting for HAT to initialize...")
     time.sleep(3)
 
     print("[INFO] Starting RGB Matrix Display Manager")
 
-    # Clean transient operations on start
+    # Reset transient state on startup
     ctrl = read_control()
     ctrl["paused"]  = False
     ctrl["skip"]    = False
     ctrl["message"] = ""
     write_control(ctrl)
 
+    ctrl   = read_control()
     matrix = create_matrix(brightness=ctrl.get("brightness", DEFAULT_BRIGHTNESS))
     config = load_config(CONFIG_FILE)
     files  = scan_images(IMAGE_FOLDER)
@@ -381,12 +345,13 @@ def main():
 
     print(f"[INFO] Found {len(files)} file(s). Starting display loop.")
 
+    # Track whether to show queue item after next image
     show_queue_next = False
 
     while running:
         ctrl = read_control()
 
-        # Handle runtime brightness adjustment changes safely
+        # Brightness change
         new_brightness = ctrl.get("brightness", DEFAULT_BRIGHTNESS)
         if new_brightness != last_brightness:
             print(f"[INFO] Brightness -> {new_brightness}")
@@ -396,24 +361,40 @@ def main():
 
         mode = ctrl.get("mode", "everything")
 
-        # 1. OFF MODE
+        # Pinned image — hold a specific image on screen
+        pinned = ctrl.get("pinned_image", "")
+        if pinned:
+            pinned_path = Path(IMAGE_FOLDER) / pinned
+            if pinned_path.exists():
+                try:
+                    img = Image.open(str(pinned_path))
+                    frame = fit_to_matrix(img)
+                    canvas = matrix.CreateFrameCanvas()
+                    canvas.SetImage(frame)
+                    matrix.SwapOnVSync(canvas)
+                except Exception as e:
+                    print(f"[WARN] Could not display pinned image: {e}")
+            time.sleep(0.5)
+            continue
+
+        # Off mode
         if mode == "off":
             matrix.Clear()
             time.sleep(0.5)
             continue
 
-        # 2. INSTANT CONTROL PANEL MESSAGES
+        # Single instant message
         if ctrl.get("message"):
             print(f"[INFO] Message: {ctrl['message']!r}")
             display_message(matrix, ctrl["message"], ctrl.get("message_color", [255, 200, 0]))
             continue
 
-        # 3. PLAYBACK PAUSED STATE
+        # Paused
         if ctrl.get("paused"):
             time.sleep(0.2)
             continue
 
-        # 4. INSTANT IMAGE SKIP FLAG
+        # Skip
         if ctrl.get("skip"):
             print("[INFO] Skip.")
             clear_flag("skip")
@@ -421,7 +402,7 @@ def main():
             show_queue_next = False
             continue
 
-        # 5. TEXT ONLY MODE (Playlist Queue Tracking Loop)
+        # TEXT ONLY MODE
         if mode == "text_only":
             queue = ctrl.get("message_queue", [])
             if queue:
@@ -431,11 +412,9 @@ def main():
                 item = queue[q_index]
                 text  = item.get("text", "") if isinstance(item, dict) else str(item)
                 color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
-                
                 if text and running:
                     print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
                     display_message(matrix, text, color, clear_message_flag=False)
-                
                 next_index = q_index + 1
                 ctrl2 = read_control()
                 cq = ctrl2.get("message_queue", [])
@@ -448,7 +427,8 @@ def main():
                             ctrl2["queue_index"] = 0
                     else:
                         ctrl2["queue_index"] = next_index
-                    write_control(ctrl2)
+                    with open(CONTROL_FILE, "w") as f:
+                        json.dump(ctrl2, f, indent=2)
             else:
                 mission_name = get_mission_name()
                 if mission_name and running:
@@ -457,7 +437,7 @@ def main():
                     time.sleep(1)
             continue
 
-        # 6. IMAGES ONLY MODE
+        # IMAGES ONLY MODE
         if mode == "images_only":
             if index == 0:
                 new_files = scan_images(IMAGE_FOLDER)
@@ -470,7 +450,9 @@ def main():
             index = (index + 1) % len(files)
             continue
 
-        # 7. EVERYTHING MODE (Interleaves Images and Playlist Messages sequentially)
+        # EVERYTHING MODE
+        # Pattern: image, queue item (if any), image, queue item, ...
+        # If no queue, SCUL text appears every N images
         queue = ctrl.get("message_queue", [])
 
         if show_queue_next and queue:
@@ -480,20 +462,19 @@ def main():
             item = queue[q_index]
             text  = item.get("text", "") if isinstance(item, dict) else str(item)
             color = item.get("color", [255, 200, 0]) if isinstance(item, dict) else [255, 200, 0]
-            
             if text and running:
                 print(f"[INFO] Queue [{q_index+1}/{len(queue)}]: {text!r}")
-                display_message(matrix, text, color, clear_message_flag=False)
-                
+                display_message(matrix, text, color)
             ctrl2 = read_control()
             cq = ctrl2.get("message_queue", [])
             if cq:
                 ctrl2["queue_index"] = (q_index + 1) % len(cq)
-                write_control(ctrl2)
+                with open(CONTROL_FILE, "w") as f:
+                    json.dump(ctrl2, f, indent=2)
             show_queue_next = False
             continue
 
-        # Secondary check handling SCUL scrolling fallback states
+        # SCUL scroll when no queue
         if not queue and SCUL_ENABLED and images_since_scul >= SCUL_EVERY_N_IMAGES:
             mission_name = get_mission_name()
             if mission_name and running:
@@ -503,7 +484,7 @@ def main():
         if not running:
             break
 
-        # Check and reload new directory additions at loop expiration
+        # Rescan folder periodically
         if index == 0:
             new_files = scan_images(IMAGE_FOLDER)
             if new_files:
@@ -514,6 +495,7 @@ def main():
         images_since_scul += 1
         index = (index + 1) % len(files)
 
+        # Flag to show queue item after next image
         if ctrl.get("message_queue"):
             show_queue_next = True
 
